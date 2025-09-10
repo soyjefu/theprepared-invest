@@ -1,0 +1,32 @@
+# invest-app/requirements.txt
+
+# Core
+Django>=4.0
+gunicorn
+python-dotenv
+PyYAML
+pytz 
+
+# Database & Cache
+psycopg2-binary
+redis
+django-redis
+
+# API & Web
+djangorestframework
+requests
+
+# Async, Celery & Websockets
+celery
+django-celery-beat
+channels
+channels-redis
+websockets
+
+# Data & Finance
+pandas
+yfinance
+
+# Utilities
+django-encrypted-model-fields
+django-humanize

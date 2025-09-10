@@ -1,0 +1,69 @@
+networks:
+  theprepared:
+    external: true
+
+volumes:
+  invest_logs: 
+services:
+  invest_app:
+    build:
+      context: ./invest-app
+    container_name: invest_app
+    restart: unless-stopped
+    command: sh -c "./wait-for-postgres.sh postgres_db gunicorn invest.wsgi:application --bind 0.0.0.0:8000"
+    volumes:
+      - ./invest-app:/app
+      - invest_logs:/app/logs
+    env_file:
+      - ./.env # 수정: env_file 경로 단일화
+    environment:
+      POSTGRES_HOST: postgres_db
+      POSTGRES_DB: ${POSTGRES_DB_I}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
+
+    networks:
+      - theprepared
+    stdin_open: true
+    tty: true
+
+  celery:
+    build:
+      context: ./invest-app
+    container_name: invest_app-celery
+    # 수정: 'autotrader' -> 'invest'로 변경
+    command: sh -c "./wait-for-postgres.sh postgres_db celery -A invest worker -l info"
+    volumes:
+      - ./invest-app:/app
+      - invest_logs:/app/logs
+    env_file:
+      - ./.env
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
+
+    networks:
+      - theprepared
+    restart: unless-stopped
+
+  celery-beat:
+    build:
+      context: ./invest-app
+    container_name: invest_app-celery-beat
+    # 수정: 'autotrader' -> 'invest'로 변경
+    command: sh -c "./wait-for-postgres.sh postgres_db celery -A invest beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+    volumes:
+      - ./invest-app:/app
+      - invest_logs:/app/logs
+    env_file:
+      - ./.env
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
+
+    networks:
+      - theprepared
+    restart: unless-stopped
+
