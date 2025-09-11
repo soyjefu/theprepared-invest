@@ -2,7 +2,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 
-# ... TradingAccount, Strategy, AccountStrategy, TradeLog 모델은 이전과 동일 ...
+# TradingAccount, Strategy, AccountStrategy 모델은 이전과 동일
 class TradingAccount(models.Model):
     class AccountType(models.TextChoices):
         SIMULATED = 'SIM', '모의투자'
@@ -49,7 +49,8 @@ class TradeLog(models.Model):
     account = models.ForeignKey(TradingAccount, on_delete=models.CASCADE, related_name='trade_logs')
     strategy = models.ForeignKey(Strategy, on_delete=models.SET_NULL, null=True, blank=True, help_text="거래에 사용된 전략")
     symbol = models.CharField(max_length=20, help_text="종목코드")
-    order_id = models.CharField(max_length=100, help_text="주문 ID")
+    # 수정: 주문 실패 시 'FAILED'와 같은 ID가 중복될 수 있으므로 unique 제약 제거
+    order_id = models.CharField(max_length=100, help_text="주문 ID") 
     trade_type = models.CharField(max_length=4, choices=TradeType.choices)
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=15, decimal_places=2)
@@ -58,22 +59,29 @@ class TradeLog(models.Model):
     log_message = models.TextField(blank=True, help_text="거래 관련 상세 메시지 또는 에러 로그")
     def __str__(self): return f"[{self.timestamp.strftime('%Y-%m-%d %H:%M')}] {self.account.account_name} - {self.symbol} {self.get_trade_type_display()} ({self.status})"
 
+# --- 신규: 분석된 종목 정보를 저장할 모델 ---
 class AnalyzedStock(models.Model):
     class Horizon(models.TextChoices):
         SHORT = 'SHORT', '단기'
         MID = 'MID', '중기'
         LONG = 'LONG', '장기'
         NONE = 'NONE', '미분류'
+
     symbol = models.CharField(max_length=20, unique=True, help_text="종목코드")
     stock_name = models.CharField(max_length=100, help_text="종목명")
-    is_investable = models.BooleanField(default=False, help_text="1차 분석(위험성) 통과 여부")
-    investment_horizon = models.CharField(max_length=5, choices=Horizon.choices, default=Horizon.NONE, help_text="2차 분석(투자 기간) 결과")
+    is_investable = models.BooleanField(default=False, help_text="1차 분석(투자가치) 통과 여부")
+    investment_horizon = models.CharField(
+        max_length=5, choices=Horizon.choices, default=Horizon.NONE,
+        help_text="2차 분석(투자 기간) 결과"
+    )
     analysis_date = models.DateField(auto_now=True, help_text="분석이 수행된 날짜")
     last_price = models.DecimalField(max_digits=15, decimal_places=2, default=0, help_text="분석 시점의 현재가")
-    raw_analysis_data = models.JSONField(default=dict, blank=True, help_text="분석에 사용된 원본 데이터, 지표 등")
-    def __str__(self): return f"[{self.symbol}] {self.stock_name} ({self.get_investment_horizon_display()})"
+    raw_analysis_data = models.JSONField(default=dict, blank=True, help_text="분석에 사용된 원본 데이터 (재무비율 등)")
 
-# --- 수정: 현재 보유 종목의 상태와 리스크 기준을 관리할 모델 추가 ---
+    def __str__(self):
+        return f"[{self.symbol}] {self.stock_name} ({self.get_investment_horizon_display()})"
+
+# --- 신규: 현재 보유 종목의 상태와 리스크 기준을 관리할 모델 ---
 class Portfolio(models.Model):
     account = models.ForeignKey(TradingAccount, on_delete=models.CASCADE, related_name='portfolio_items')
     symbol = models.CharField(max_length=20, help_text="종목코드")

@@ -1,0 +1,74 @@
+# invest-app/trading/analysis/market_scanner.py
+
+import logging
+from trading.models import AnalyzedStock, TradingAccount
+from trading.kis_client import KISApiClient
+
+logger = logging.getLogger(__name__)
+
+def screen_initial_stocks():
+    """
+    1단계: 거래량 상위 종목을 대상으로 기본적인 필터링을 수행하고 DB에 저장/업데이트합니다.
+    """
+    logger.info("1차 종목 스크리닝을 시작합니다: 거래량 상위 종목 필터링")
+    
+    first_account = TradingAccount.objects.filter(is_active=True).first()
+    if not first_account:
+        logger.error("API 호출에 사용할 활성 계정이 없어 스크리닝을 중단합니다.")
+        return
+
+    client = KISApiClient(
+        app_key=first_account.app_key,
+        app_secret=first_account.app_secret,
+        account_no=first_account.account_number,
+        account_type=first_account.account_type
+    )
+
+    # 수정: 전체 종목 대신 거래량 상위 종목을 가져옵니다.
+    kospi_top = client.get_top_volume_stocks(market='KOSPI', top_n=50)
+    kosdaq_top = client.get_top_volume_stocks(market='KOSDAQ', top_n=50)
+    target_symbols = list(set(kospi_top + kosdaq_top))
+
+    if not target_symbols:
+        logger.error("거래량 상위 종목을 조회하지 못해 스크리닝을 종료합니다.")
+        return
+
+    logger.info(f"거래량 상위 {len(target_symbols)}개 종목을 대상으로 1차 필터링을 시작합니다.")
+    
+    # DB에 저장된 모든 종목을 '투자가치 없음'으로 초기화
+    AnalyzedStock.objects.all().update(is_investable=False)
+    
+    screened_count = 0
+    for symbol in target_symbols:
+        # 현재가 조회를 통해 종목명 가져오기 및 기본 필터링
+        price_info = client.get_current_price(symbol)
+        if not (price_info and price_info.get('rt_cd') == '0'):
+            logger.warning(f"[{symbol}] 현재가 정보를 가져오지 못해 필터링에서 제외합니다.")
+            continue
+            
+        stock_name = price_info.get('output', {}).get('hts_kor_isnm', '')
+        
+        is_investable = True
+        reason = ""
+        
+        if stock_name.endswith('우') or any(keyword in stock_name for keyword in ['스팩', 'ETN', 'TIGER', 'KODEX']):
+            is_investable = False
+            reason = "우선주/스팩/ETF"
+        
+        # TODO: 향후 API를 통해 관리종목 여부 등을 직접 확인하는 로직으로 고도화
+        
+        obj, created = AnalyzedStock.objects.update_or_create(
+            symbol=symbol,
+            defaults={
+                'stock_name': stock_name,
+                'is_investable': is_investable,
+                'last_price': price_info.get('output', {}).get('stck_prpr', '0')
+            }
+        )
+
+        if is_investable:
+            screened_count += 1
+        else:
+            logger.debug(f"[{symbol}] {stock_name}: 필터링됨 ({reason}).")
+
+    logger.info(f"1차 스크리닝 완료. 총 {len(target_symbols)}개 중 {screened_count}개의 투자가능 후보 종목을 DB에 저장했습니다.")

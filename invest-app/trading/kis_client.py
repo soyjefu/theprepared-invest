@@ -1,5 +1,5 @@
 # invest-app/trading/kis_client.py
-
+# ... 상단 코드는 이전과 동일 ...
 import requests
 import json
 from datetime import datetime, timedelta, time
@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class KISApiClient:
-    # ... __init__ 부터 get_daily_price_history 까지는 이전과 동일 ...
+    # ... __init__ 부터 is_market_open 까지는 이전과 동일 ...
     def __init__(self, app_key, app_secret, account_no, account_type='SIM'):
         self.app_key = app_key
         self.app_secret = app_secret
@@ -57,7 +57,7 @@ class KISApiClient:
             return response.json()
         except requests.exceptions.RequestException as e: return None
         except json.JSONDecodeError: return {"rt_cd": "E", "msg1": "JSON 파싱 에러", "raw_response": response.text}
-    
+
     def get_account_balance(self):
         path = "/uapi/domestic-stock/v1/trading/inquire-balance"
         tr_id = "VTTC8434R" if self.account_type == 'SIM' else "TTTC8434R"
@@ -72,19 +72,14 @@ class KISApiClient:
         params = { "FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol }
         return self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
 
-    def place_order(self, symbol, quantity, price, order_type='BUY', order_division="00"): # 수정: order_division 추가
-        """주식을 주문합니다. (기본: 지정가)"""
+    def place_order(self, symbol, quantity, price, order_type='BUY', order_division="00"):
         path = "/uapi/domestic-stock/v1/trading/order-cash"
         tr_id = ("VTTC0802U" if order_type.upper() == 'BUY' else "VTTC0801U") if self.account_type == 'SIM' else ("TTTC0802U" if order_type.upper() == 'BUY' else "TTTC0801U")
         clean_account_no = self.account_no.replace('-', '')
         cano, acnt_prdt_cd = clean_account_no[:8], clean_account_no[8:]
-        body = {
-            "CANO": cano, "ACNT_PRDT_CD": acnt_prdt_cd, "PDNO": symbol,
-            "ORD_DVSN": order_division, # 수정: 파라미터로 받은 주문 구분 사용
-            "ORD_QTY": str(quantity), "ORD_UNPR": str(price),
-        }
+        body = {"CANO": cano, "ACNT_PRDT_CD": acnt_prdt_cd, "PDNO": symbol, "ORD_DVSN": order_division, "ORD_QTY": str(quantity), "ORD_UNPR": str(price)}
         return self._send_request(method='POST', path=path, body=body, tr_id=tr_id)
-        
+
     def get_daily_price_history(self, symbol, days=100):
         path = "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
         tr_id = "FHKST03010100"
@@ -106,33 +101,33 @@ class KISApiClient:
                 return True
         return False
 
-    # 수정: 거래량 상위 종목 조회 기능 추가
     def get_top_volume_stocks(self, market='KOSPI', top_n=20):
-        """거래량 상위 종목 리스트를 반환합니다."""
         path = "/uapi/domestic-stock/v1/quotations/volume-rank"
         tr_id = "FHPST01710000"
-        
         market_code_map = {'KOSPI': '0', 'KOSDAQ': '1'}
-        
-        params = {
-            "FID_COND_MRKT_DIV_CODE": "J",
-            "FID_COND_SCR_DIV_CODE": "20171",
-            "FID_INPUT_ISCD": market_code_map.get(market.upper(), '0'),
-            "FID_DIV_CLS_CODE": "0", # 0: 제외안함
-            "FID_BLNG_CLS_CODE": "0", # 0: 전체
-            "FID_TRGT_CLS_CODE": "111111111", # 전체
-            "FID_TRGT_EXLS_CLS_CODE": "000000", # 제외없음
-            "FID_INPUT_PRICE_1": "",
-            "FID_INPUT_PRICE_2": "",
-            "FID_VOL_CNT": "",
-            "FID_INPUT_DATE_1": ""
-        }
-        
+        params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_COND_SCR_DIV_CODE": "20171", "FID_INPUT_ISCD": market_code_map.get(market.upper(), '0'), "FID_DIV_CLS_CODE": "0", "FID_BLNG_CLS_CODE": "0", "FID_TRGT_CLS_CODE": "111111111", "FID_TRGT_EXLS_CLS_CODE": "000000", "FID_INPUT_PRICE_1": "", "FID_INPUT_PRICE_2": "", "FID_VOL_CNT": "", "FID_INPUT_DATE_1": ""}
         response = self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
-        
         if response and response.get('rt_cd') == '0':
             stocks = response.get('output', [])
             return [stock['mksc_shrn_iscd'] for stock in stocks[:top_n]]
-        
         logger.error(f"[{market}] 거래량 상위 종목 조회 실패: {response}")
         return []
+    
+    # 수정: 전체 종목 코드 조회 기능 추가
+    def get_all_stock_codes(self):
+        """KOSPI와 KOSDAQ의 모든 종목 코드를 {코드: 이름} 형태의 딕셔너리로 반환합니다."""
+        all_stocks = {}
+        for market_code in ["KOSPI", "KOSDAQ"]:
+            path = "/uapi/domestic-stock/v1/quotations/search-stock-info"
+            tr_id = "CTPF1604R"
+            params = {
+                "PDMK_FLG": market_code,
+                "INQD_TP_CD": "1" # 1: 전체 조회
+            }
+            response = self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
+            if response and response.get('rt_cd') == '0':
+                for stock in response.get('output2', []):
+                    all_stocks[stock['code']] = stock['name']
+            else:
+                logger.error(f"[{market_code}] 전체 종목 코드 조회 실패: {response}")
+        return all_stocks
