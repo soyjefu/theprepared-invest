@@ -21,13 +21,12 @@ class AIStrategy(StrategyBase):
         if signal == 'BUY':
             logger.info(f"✅ [{self.symbol}] AI 모델이 '매수' 신호를 생성했습니다.")
             
-            # 현재가로 1주 매수 주문 (예시)
             price_info = self.client.get_current_price(self.symbol)
             if not (price_info and price_info.get('rt_cd') == '0'):
                 logger.error(f"[{self.symbol}] 주문을 위한 현재가 조회에 실패했습니다.")
                 return
 
-            quantity_to_order = 1
+            quantity_to_order = 1 # 테스트를 위해 1주로 고정
             order_price = int(price_info.get('output', {}).get('stck_prpr', '0'))
             
             logger.info(f"[{self.symbol}] 자동 매수 주문을 시도합니다. 수량: {quantity_to_order}, 가격: {order_price}")
@@ -37,7 +36,6 @@ class AIStrategy(StrategyBase):
                 price=order_price, order_type='BUY'
             )
 
-            # ... (주문 결과 로그 기록 로직은 golden_cross.py와 동일) ...
             if order_response and order_response.get('rt_cd') == '0':
                 order_id = order_response.get('output', {}).get('ODNO', 'N/A')
                 status = TradeLog.TradeStatus.EXECUTED
@@ -57,8 +55,7 @@ class AIStrategy(StrategyBase):
             )
         
         elif signal == 'SELL':
-            logger.info(f"[{self.symbol}] AI 모델이 '매도' 신호를 생성했습니다. (매도 로직은 구현되지 않음)")
-            # TODO: 향후 매도 로직 구현
+            logger.info(f"[{self.symbol}] AI 모델이 '매도' 신호를 생성했습니다. (매도 로직은 향후 구현)")
         
         else: # HOLD
-            logger.info(f"[{self.symbol}] AI 모델이 '보유' 신호를 생성했습니다.")
+            logger.info(f"[{self.symbol}] AI 모델이 '관망' 신호를 생성했습니다.")

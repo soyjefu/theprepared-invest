@@ -17,7 +17,9 @@ def get_ai_prediction(symbol):
     
     # TODO: 향후 이 부분을 실제 TensorFlow/PyTorch 모델 로드 및 예측 코드로 교체
     # 예: model = load_model('my_model.h5')
-    #     prediction = model.predict(stock_data)
+    #     prepared_data = prepare_data_for_model(symbol)
+    #     prediction_result = model.predict(prepared_data)
+    #     signal = convert_prediction_to_signal(prediction_result)
     
     # 현재는 예측을 시뮬레이션
     signals = ['BUY', 'SELL', 'HOLD']
