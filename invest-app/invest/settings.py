@@ -101,19 +101,21 @@ CELERY_TIMEZONE = 'Asia/Seoul'
 
 # Celery Beat (Periodic Tasks) Settings
 CELERY_BEAT_SCHEDULE = {
-    # 1. 매일 오전 8시 50분에 1차 종목 스크리닝 실행
-    'screen-stocks-daily': {
-        'task': 'trading.tasks.screen_stocks_task',
-        'schedule': crontab(hour=8, minute=50, day_of_week='1-5'), # 월~금 아침 8시 50분
+    # 매일 새벽 4시에 1차, 2차 분석 실행
+    'run-daily-morning-routine': {
+        'task': 'trading.tasks.run_daily_morning_routine',
+        'schedule': crontab(minute=0, hour=4), # 매일 새벽 4시에 실행
     },
-    # 2. 매일 오전 8시 55분에 2차 분류 실행
-    'classify-stocks-daily': {
-        'task': 'trading.tasks.classify_stocks_task',
-        'schedule': crontab(hour=8, minute=55, day_of_week='1-5'),
+    # 매월 1일 새벽 5시에 중기 투자 리밸런싱 실행
+    'run-monthly-rebalancing': {
+        'task': 'trading.tasks.run_periodic_rebalancing',
+        'schedule': crontab(minute=0, hour=5, day_of_month=1),
+        'args': ('중기',)
     },
-    # 3. 매일 오전 9시 5분에 '단기' 종목 대상 전략 실행
-    'run-all-strategies-daily': {
-        'task': 'trading.tasks.run_all_active_strategies',
-        'schedule': crontab(hour=9, minute=5, day_of_week='1-5'),
+    # 매 분기 첫 달 1일 새벽 5시 30분에 장기 투자 리밸런싱 실행
+    'run-quarterly-rebalancing': {
+        'task': 'trading.tasks.run_periodic_rebalancing',
+        'schedule': crontab(minute=30, hour=5, day_of_month=1, month_of_year='1,4,7,10'),
+        'args': ('장기',)
     },
-}   
+}
