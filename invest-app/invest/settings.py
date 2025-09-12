@@ -106,16 +106,19 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'trading.tasks.run_daily_morning_routine',
         'schedule': crontab(minute=0, hour=4), # 매일 새벽 4시에 실행
     },
-    # 매월 1일 새벽 5시에 중기 투자 리밸런싱 실행
-    'run-monthly-rebalancing': {
-        'task': 'trading.tasks.run_periodic_rebalancing',
-        'schedule': crontab(minute=0, hour=5, day_of_month=1),
-        'args': ('중기',)
+    # 2. 매일 오전 8시 55분에 2차 AI 분석 실행
+    'analyze-stocks-daily': {
+        'task': 'trading.tasks.analyze_stocks_task',
+        'schedule': crontab(hour=8, minute=55, day_of_week='1-5'),
     },
-    # 매 분기 첫 달 1일 새벽 5시 30분에 장기 투자 리밸런싱 실행
-    'run-quarterly-rebalancing': {
-        'task': 'trading.tasks.run_periodic_rebalancing',
-        'schedule': crontab(minute=30, hour=5, day_of_month=1, month_of_year='1,4,7,10'),
-        'args': ('장기',)
+    # 3. 매일 오전 9시 5분에 3차 매매 실행
+    'execute-trades-daily': {
+        'task': 'trading.tasks.execute_ai_trades_task',
+        'schedule': crontab(hour=9, minute=5, day_of_week='1-5'),
     },
-}
+    # 4. 매일 장중 1분마다 포지션 모니터링 실행
+    'monitor-positions-intraday': {
+        'task': 'trading.tasks.monitor_open_positions_task',
+        'schedule': crontab(hour='9-15', minute='*', day_of_week='1-5'),
+    },
+}   

@@ -1,2 +1,14 @@
+# Environment variables
 .env
+
+# Django static files
 invest-app/staticfiles/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Database
+db.sqlite3

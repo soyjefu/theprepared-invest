@@ -2,7 +2,6 @@
 from django.db import models
 from django.contrib.auth.models import User
 
-# TradingAccount, Strategy, AccountStrategy 모델은 이전과 동일
 class TradingAccount(models.Model):
     class AccountType(models.TextChoices):
         SIMULATED = 'SIM', '모의투자'
@@ -19,24 +18,6 @@ class TradingAccount(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     def __str__(self): return f"{self.user.username} - {self.account_name} ({self.get_account_type_display()})"
 
-class Strategy(models.Model):
-    name = models.CharField(max_length=100, unique=True, help_text="전략 이름")
-    description = models.TextField(blank=True, help_text="전략 설명")
-    parameters = models.JSONField(default=dict, blank=True, help_text="전략 실행에 필요한 파라미터 (e.g., {'short_ma': 5, 'long_ma': 20})")
-    is_active = models.BooleanField(default=True, help_text="활성화 여부")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    def __str__(self): return self.name
-
-class AccountStrategy(models.Model):
-    account = models.ForeignKey(TradingAccount, on_delete=models.CASCADE, related_name='strategies')
-    strategy = models.ForeignKey(Strategy, on_delete=models.CASCADE, related_name='accounts')
-    is_active = models.BooleanField(default=True, help_text="해당 계좌에서 이 전략의 활성화 여부")
-    trading_capital = models.DecimalField(max_digits=15, decimal_places=2, help_text="이 전략에 할당된 자본금")
-    updated_at = models.DateTimeField(auto_now=True)
-    class Meta: unique_together = ('account', 'strategy')
-    def __str__(self): return f"{self.account.account_name} - {self.strategy.name}"
-
 class TradeLog(models.Model):
     class TradeType(models.TextChoices):
         BUY = 'BUY', '매수'
@@ -47,9 +28,7 @@ class TradeLog(models.Model):
         FAILED = 'FAILED', '실패'
         CANCELED = 'CANCELED', '취소'
     account = models.ForeignKey(TradingAccount, on_delete=models.CASCADE, related_name='trade_logs')
-    strategy = models.ForeignKey(Strategy, on_delete=models.SET_NULL, null=True, blank=True, help_text="거래에 사용된 전략")
     symbol = models.CharField(max_length=20, help_text="종목코드")
-    # 수정: 주문 실패 시 'FAILED'와 같은 ID가 중복될 수 있으므로 unique 제약 제거
     order_id = models.CharField(max_length=100, help_text="주문 ID") 
     trade_type = models.CharField(max_length=4, choices=TradeType.choices)
     quantity = models.PositiveIntegerField()
@@ -104,3 +83,47 @@ class Portfolio(models.Model):
     def __str__(self):
         status = "OPEN" if self.is_open else "CLOSED"
         return f"[{self.account.account_name}] {self.symbol}: {self.quantity}주 @{self.average_buy_price} ({status})"
+
+
+# --- 신규: AI 기반 투자 전략의 설정을 관리할 모델 ---
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator, MaxValueValidator
+
+class StrategySettings(models.Model):
+    """AI 투자 전략의 글로벌 설정을 관리하는 싱글톤 모델."""
+    short_term_allocation = models.DecimalField(
+        max_digits=5, decimal_places=2, default=30.00,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="단기 투자 전략에 할당할 자본의 비율(%)"
+    )
+    mid_term_allocation = models.DecimalField(
+        max_digits=5, decimal_places=2, default=40.00,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="중기 투자 전략에 할당할 자본의 비율(%)"
+    )
+    long_term_allocation = models.DecimalField(
+        max_digits=5, decimal_places=2, default=30.00,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="장기 투자 전략에 할당할 자본의 비율(%)"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        """세 할당량의 합이 100인지 검증합니다."""
+        total_allocation = self.short_term_allocation + self.mid_term_allocation + self.long_term_allocation
+        if total_allocation != 100:
+            raise ValidationError(f"전체 할당량의 합이 100%가 되어야 합니다. 현재 합계: {total_allocation}%")
+
+    def save(self, *args, **kwargs):
+        """이 모델의 인스턴스가 단 하나만 존재하도록 보장합니다."""
+        if not self.pk and StrategySettings.objects.exists():
+            raise ValidationError("StrategySettings는 단 하나만 존재할 수 있습니다. 기존 설정을 수정해주세요.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"전략 설정 (단기: {self.short_term_allocation}%, 중기: {self.mid_term_allocation}%, 장기: {self.long_term_allocation}%)"
+
+    class Meta:
+        verbose_name = "AI 전략 설정"
+        verbose_name_plural = "AI 전략 설정"

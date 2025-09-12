@@ -38,7 +38,7 @@ RUN mkdir -p /app/logs && chown -R appuser:appgroup /app/logs
 
 RUN chown -R appuser:appgroup /app
 
-# 6. 사용자 전환    
+# 6. 사용자 전환
 # -------------
 # 이제부터는 appuser 권한으로 명령을 실행합니다.
 USER appuser
