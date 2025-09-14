@@ -88,13 +88,16 @@ def execute_ai_trades_task():
 
     # 2. Initialize API client and get account balance
     client = KISApiClient(app_key=account.app_key, app_secret=account.app_secret, account_no=account.account_number, account_type=account.account_type)
-    balance_info = client.get_account_balance()
-    if not balance_info or balance_info.get('rt_cd') != '0':
-        logger.error(f"Failed to fetch account balance: {balance_info}")
+    balance_info_res = client.get_account_balance()
+    if not balance_info_res or not balance_info_res.is_ok():
+        error_msg = balance_info_res.get_error_message() if balance_info_res else "No response from API."
+        logger.error(f"Failed to fetch account balance: {error_msg}")
         return
 
-    total_assets = Decimal(balance_info.get('output1', [{}])[0].get('tot_evlu_amt', '0'))
-    cash_available = Decimal(balance_info.get('output1', [{}])[0].get('dnca_tot_amt', '0'))
+    balance_info = balance_info_res.get_body()
+    output1 = balance_info.get('output1', [{}])[0]
+    total_assets = Decimal(output1.get('tot_evlu_amt', '0'))
+    cash_available = Decimal(output1.get('dnca_tot_amt', '0'))
     logger.info(f"Total Assets: {total_assets}, Available Cash: {cash_available}")
 
     # 3. Get current portfolio from our DB

@@ -1,7 +1,9 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from .models import StrategySettings, Portfolio, TradeLog, AnalyzedStock, TradingAccount
 from .kis_client import KISApiClient
+from .tasks import analyze_stocks_task
 from decimal import Decimal
 
 @login_required
@@ -27,8 +29,9 @@ def dashboard(request):
     # 2. Get Account Balance from API for the selected account
     if selected_account:
         client = KISApiClient(app_key=selected_account.app_key, app_secret=selected_account.app_secret, account_no=selected_account.account_number, account_type=selected_account.account_type)
-        balance_info = client.get_account_balance()
-        if balance_info and balance_info.get('rt_cd') == '0':
+        balance_info_res = client.get_account_balance()
+        if balance_info_res and balance_info_res.is_ok():
+            balance_info = balance_info_res.get_body()
             output1_list = balance_info.get('output1', [])
             if output1_list:
                 context['balance'] = output1_list[0]
@@ -37,7 +40,8 @@ def dashboard(request):
                 context['balance_error'] = "API returned empty balance information."
         else:
             context['balance'] = None
-            context['balance_error'] = "Failed to fetch account balance."
+            error_msg = balance_info_res.get_error_message() if balance_info_res else "No response from API."
+            context['balance_error'] = f"Failed to fetch account balance: {error_msg}"
     else:
         context['balance'] = None
 
@@ -74,3 +78,14 @@ def dashboard(request):
     context['recent_trades'] = TradeLog.objects.filter(account=selected_account).order_by('-timestamp')[:20] if selected_account else []
 
     return render(request, 'trading/dashboard.html', context)
+
+@login_required
+def trigger_stock_analysis(request):
+    """
+    Triggers the Celery task to run the stock analysis.
+    """
+    if request.method == 'POST':
+        # run_daily_morning_routine.delay()
+        analyze_stocks_task.delay()
+        messages.success(request, "수동 주식 분석 작업이 시작되었습니다. 잠시 후 결과가 대시보드에 반영됩니다.")
+    return redirect('trading:dashboard')

@@ -19,6 +19,14 @@
     <div class="container">
         <h1>Trading Dashboard</h1>
 
+        {% if messages %}
+            <div class="messages" style="padding: 1em; margin-bottom: 1em; border-radius: 4px; background-color: #d4edda; color: #155724;">
+                {% for message in messages %}
+                    <p>{{ message }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
+
         {% if all_accounts %}
         <div class="section">
             <form method="get" action="">
@@ -75,6 +83,10 @@
             {% else %}
                 <p>Strategy settings have not been configured in the admin yet.</p>
             {% endif %}
+            <form action="{% url 'trading:run_analysis' %}" method="post" style="margin-top: 1em;">
+                {% csrf_token %}
+                <button type="submit">Run Stock Analysis Manually</button>
+            </form>
         </div>
 
         <div class="section">
