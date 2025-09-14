@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 from decimal import Decimal
-from .models import AnalyzedStock, Portfolio, TradingAccount, AccountStrategy
+from .models import AnalyzedStock, Portfolio, TradingAccount
 from .kis_client import KISClient  # 가상의 한국투자증권 API 클라이언트
 # from .ai_model_handler import AIModelHandler # 가상의 AI 모델 핸들러
 
