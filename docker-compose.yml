@@ -17,6 +17,7 @@ services:
     env_file:
       - ./.env # 수정: env_file 경로 단일화
     environment:
+      NUMBA_CPU_NAME: generic
       POSTGRES_HOST: postgres_db
       POSTGRES_DB: ${POSTGRES_DB_I}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -41,6 +42,7 @@ services:
     env_file:
       - ./.env
     environment:
+      NUMBA_CPU_NAME: generic
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
 
@@ -60,6 +62,7 @@ services:
     env_file:
       - ./.env
     environment:
+      NUMBA_CPU_NAME: generic
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
 
