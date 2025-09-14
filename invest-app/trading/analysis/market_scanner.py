@@ -24,13 +24,34 @@ def screen_initial_stocks():
         account_type=first_account.account_type
     )
 
-    # 수정: 전체 종목 대신 거래량 상위 종목을 가져옵니다.
-    kospi_top = client.get_top_volume_stocks(market='KOSPI', top_n=50)
-    kosdaq_top = client.get_top_volume_stocks(market='KOSDAQ', top_n=50)
-    target_symbols = list(set(kospi_top + kosdaq_top))
+    # 시장의 주요 우량주 목록을 기본값으로 포함하여, 장 마감 후에도 분석이 가능하도록 함
+    predefined_blue_chips = [
+        "005930",  # 삼성전자
+        "000660",  # SK하이닉스
+        "005380",  # 현대차
+        "005490",  # POSCO홀딩스
+        "035420",  # NAVER
+        "000270",  # 기아
+        "035720",  # 카카오
+        "068270",  # 셀트리온
+        "051910",  # LG화학
+        "006400",  # 삼성SDI
+    ]
+
+    # KIS API를 통해 거래량 상위 종목을 가져옵니다.
+    try:
+        kospi_top = client.get_top_volume_stocks(market='KOSPI', top_n=50)
+        kosdaq_top = client.get_top_volume_stocks(market='KOSDAQ', top_n=50)
+        top_volume_stocks = kospi_top + kosdaq_top
+    except Exception as e:
+        logger.warning(f"API를 통해 거래량 상위 종목을 가져오는 중 오류 발생: {e}. 미리 정의된 종목으로 분석을 계속합니다.")
+        top_volume_stocks = []
+
+    # 두 목록을 합치고 중복을 제거합니다.
+    target_symbols = list(set(predefined_blue_chips + top_volume_stocks))
 
     if not target_symbols:
-        logger.error("거래량 상위 종목을 조회하지 못해 스크리닝을 종료합니다.")
+        logger.error("분석할 대상 종목이 없어 스크리닝을 종료합니다.")
         return
 
     logger.info(f"거래량 상위 {len(target_symbols)}개 종목을 대상으로 1차 필터링을 시작합니다.")

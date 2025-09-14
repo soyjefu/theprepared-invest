@@ -201,6 +201,15 @@ def execute_ai_trades_task():
 
 
 @shared_task
+def run_all_active_strategies():
+    """
+    Placeholder task to prevent `KeyError: 'trading.tasks.run_all_active_strategies'`
+    This task was likely part of a previous feature and is still in the scheduler's database.
+    """
+    logger.info("Placeholder task 'run_all_active_strategies' executed. No action taken.")
+    pass
+
+@shared_task
 def monitor_open_positions_task():
     """
     실시간으로 현재 보유 포지션을 모니터링하고, 손절/익절 조건 도달 시 매도 주문을 실행합니다.
