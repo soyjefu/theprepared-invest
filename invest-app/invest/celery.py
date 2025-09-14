@@ -1,5 +1,9 @@
 # invest-app/invest/celery.py
 
+# Numba Caching 버그 수정을 위한 Monkey Patch 적용
+# 이 import는 다른 라이브러리(예: pandas_ta)가 numba를 import하기 전에 실행되어야 합니다.
+import invest.numba_patch
+
 import os
 from celery import Celery
 
