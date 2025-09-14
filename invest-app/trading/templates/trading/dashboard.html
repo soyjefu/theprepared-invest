@@ -27,10 +27,11 @@
     </style>
 </head>
 <body>
+    {% load humanize %}
     <header class="header">
         <h1>종합 트레이딩 대시보드</h1>
         <div>
-            <strong>총 자산:</strong> <span id="grand-total-assets">{{ grand_total_assets|floatformat:"0" }}</span> KRW
+            <strong>총 자산:</strong> <span id="grand-total-assets">{{ grand_total_assets|intcomma }}</span> KRW
         </div>
     </header>
 
@@ -54,12 +55,12 @@
                     {% elif detail.balance_summary %}
                         <table>
                             <tr>
-                                <th>총 평가금액</th><td class="number">{{ detail.balance_summary.tot_evlu_amt|floatformat:"0" }} 원</td>
-                                <th>예수금</th><td class="number">{{ detail.balance_summary.dnca_tot_amt|floatformat:"0" }} 원</td>
+                                <th>총 평가금액</th><td class="number">{{ detail.balance_summary.tot_evlu_amt|intcomma }} 원</td>
+                                <th>예수금</th><td class="number">{{ detail.balance_summary.dnca_tot_amt|intcomma }} 원</td>
                             </tr>
                             <tr>
                                 <th>총 평가손익률</th><td class="number {% if detail.balance_summary.tot_pftrt|floatformat > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ detail.balance_summary.tot_pftrt|floatformat:"2" }}%</td>
-                                <th>총 평가손익</th><td class="number">{{ detail.balance_summary.tot_pfls_amt|floatformat:"0" }} 원</td>
+                                <th>총 평가손익</th><td class="number">{{ detail.balance_summary.tot_pfls_amt|intcomma }} 원</td>
                             </tr>
                         </table>
 
@@ -79,7 +80,7 @@
                                     <tr>
                                         <td>{{ pos.prdt_name }} ({{ pos.pdno }})</td>
                                         <td class="number">{{ pos.hldg_qty }}</td>
-                                        <td class="number">{{ pos.evlu_amt|floatformat:"0" }}</td>
+                                        <td class="number">{{ pos.evlu_amt|intcomma }}</td>
                                         <td class="number {% if pos.evlu_pfls_rt|floatformat > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ pos.evlu_pfls_rt|floatformat:"2" }}</td>
                                     </tr>
                                 {% endfor %}
