@@ -2,11 +2,14 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from .models import StrategySettings, Portfolio, TradeLog, AnalyzedStock, TradingAccount
+from django_celery_beat.models import PeriodicTask, CrontabSchedule
 from .kis_client import KISApiClient
 from .tasks import analyze_stocks_task
 from decimal import Decimal
 import logging
+import json
 from django.http import JsonResponse, HttpResponseRedirect
+from django.views.decorators.http import require_POST
 from django.core.cache import cache
 from django.urls import reverse
 
@@ -78,6 +81,9 @@ def dashboard(request):
 
     # Get recent trade logs for all accounts
     context['recent_trades'] = TradeLog.objects.filter(account__in=all_accounts).order_by('-timestamp')[:20]
+
+    # Get periodic tasks for management
+    context['periodic_tasks'] = PeriodicTask.objects.select_related('crontab', 'interval').all()
 
     return render(request, 'trading/dashboard.html', context)
 
@@ -154,3 +160,53 @@ def investment_strategy(request):
     # For standard GET requests, just render the page template.
     context = {}
     return render(request, 'trading/investment_strategy.html', context)
+
+
+@login_required
+@require_POST
+def update_task_schedule(request):
+    """
+    API endpoint to update a periodic task's schedule and status.
+    Expects a JSON body with 'task_id', 'schedule', and 'enabled'.
+    'schedule' should be a standard 5-part crontab string (e.g., "0 9 * * *").
+    """
+    try:
+        data = json.loads(request.body)
+        task_id = data.get('task_id')
+        new_crontab_str = data.get('schedule')
+        is_enabled = data.get('enabled')
+
+        if not all([task_id, new_crontab_str, is_enabled is not None]):
+            return JsonResponse({'status': 'error', 'message': 'Missing required parameters.'}, status=400)
+
+        task = PeriodicTask.objects.get(id=task_id)
+
+        # Update enabled status
+        task.enabled = is_enabled
+
+        # Update schedule if it has changed
+        # This logic assumes we are only dealing with crontab schedules for now.
+        if task.crontab:
+            # Standard crontab format: minute, hour, day_of_month, month_of_year, day_of_week
+            current_crontab_str = f"{task.crontab.minute} {task.crontab.hour} {task.crontab.day_of_month} {task.crontab.month_of_year} {task.crontab.day_of_week}"
+            if new_crontab_str != current_crontab_str:
+                minute, hour, day_of_month, month_of_year, day_of_week = new_crontab_str.split()
+
+                crontab_schedule, _ = CrontabSchedule.objects.get_or_create(
+                    minute=minute,
+                    hour=hour,
+                    day_of_month=day_of_month,
+                    month_of_year=month_of_year,
+                    day_of_week=day_of_week
+                )
+                task.crontab = crontab_schedule
+
+        task.save()
+
+        return JsonResponse({'status': 'success', 'message': 'Task updated successfully.'})
+
+    except PeriodicTask.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Task not found.'}, status=404)
+    except Exception as e:
+        logger.error(f"Error updating task schedule: {e}", exc_info=True)
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)

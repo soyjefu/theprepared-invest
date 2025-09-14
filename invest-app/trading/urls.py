@@ -10,4 +10,7 @@ urlpatterns = [
     path('analysis/run/', views.trigger_stock_analysis, name='run_analysis'),
     path('analysis/status/', views.get_analysis_status, name='get_analysis_status'),
     path('investment_strategy/', views.investment_strategy, name='investment_strategy'),
+
+    # API for updating task schedules
+    path('api/task/update/', views.update_task_schedule, name='update_task_schedule'),
 ]

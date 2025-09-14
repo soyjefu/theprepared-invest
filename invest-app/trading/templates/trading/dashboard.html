@@ -24,6 +24,14 @@
         .progress-section { display: none; } /* Initially hidden */
         .progress-bar-container { background-color: #e0e0e0; border-radius: 4px; padding: 3px; }
         .progress-bar { background-color: #3498db; height: 20px; border-radius: 2px; width: 0%; transition: width 0.3s ease-in-out; }
+        .switch { position: relative; display: inline-block; width: 50px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #2196F3; }
+        input:checked + .slider:before { transform: translateX(26px); }
+        .action-btn { font-size: 0.8em; padding: 5px 10px; margin-left: 5px; }
+        .edit-form { display: none; }
     </style>
 </head>
 <body>
@@ -149,6 +157,60 @@
             </div>
         </div>
 
+        <div class="card">
+            <h2>예약 작업 관리</h2>
+            {% if periodic_tasks %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>작업 이름</th>
+                        <th>현재 스케줄 (Crontab)</th>
+                        <th>마지막 실행</th>
+                        <th>활성화</th>
+                        <th>관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for task in periodic_tasks %}
+                    <tr data-task-id="{{ task.id }}">
+                        <td><strong>{{ task.name }}</strong><br><small style="color: #666;">{{ task.task }}</small></td>
+                        <td class="schedule-display">
+                            {% if task.crontab %}
+                                <span class="schedule-text">{{ task.crontab.minute }} {{ task.crontab.hour }} {{ task.crontab.day_of_month }} {{ task.crontab.month_of_year }} {{ task.crontab.day_of_week }}</span>
+                                <div class="edit-form">
+                                    <input type="text" class="schedule-input" value="{{ task.crontab.minute }} {{ task.crontab.hour }} {{ task.crontab.day_of_month }} {{ task.crontab.month_of_year }} {{ task.crontab.day_of_week }}">
+                                </div>
+                            {% elif task.interval %}
+                                <span>Every {{ task.interval.every }} {{ task.interval.period }}</span>
+                            {% else %}
+                                <span>-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ task.last_run_at|naturaltime|default:"N/A" }}</td>
+                        <td>
+                            <label class="switch">
+                                <input type="checkbox" class="enabled-toggle" {% if task.enabled %}checked{% endif %}>
+                                <span class="slider"></span>
+                            </label>
+                        </td>
+                        <td class="actions">
+                            {% if task.crontab %}
+                                <button class="action-btn edit-btn">수정</button>
+                                <button class="action-btn save-btn" style="display:none;">저장</button>
+                                <button class="action-btn cancel-btn" style="display:none;">취소</button>
+                            {% else %}
+                                <small>스케줄 변경 불가</small>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p>관리할 수 있는 예약 작업이 없습니다.</p>
+            {% endif %}
+        </div>
+
     </div>
 
     <script>
@@ -213,6 +275,89 @@
 
             // Check status on page load in case a task is already running
             checkStatus();
+
+            // --- Task Management Logic ---
+            document.querySelectorAll('tr[data-task-id]').forEach(row => {
+                const taskId = row.dataset.taskId;
+                const editBtn = row.querySelector('.edit-btn');
+                const saveBtn = row.querySelector('.save-btn');
+                const cancelBtn = row.querySelector('.cancel-btn');
+                const enabledToggle = row.querySelector('.enabled-toggle');
+                const scheduleDisplay = row.querySelector('.schedule-display');
+                const scheduleText = scheduleDisplay.querySelector('.schedule-text');
+                const editForm = scheduleDisplay.querySelector('.edit-form');
+                const scheduleInput = editForm.querySelector('.schedule-input');
+
+                // Store original values for cancellation
+                let originalSchedule = scheduleInput.value;
+                let originalEnabled = enabledToggle.checked;
+
+                editBtn.addEventListener('click', () => {
+                    scheduleText.style.display = 'none';
+                    editForm.style.display = 'block';
+                    editBtn.style.display = 'none';
+                    saveBtn.style.display = 'inline-block';
+                    cancelBtn.style.display = 'inline-block';
+                    scheduleInput.focus();
+                });
+
+                cancelBtn.addEventListener('click', () => {
+                    scheduleText.style.display = 'block';
+                    editForm.style.display = 'none';
+                    editBtn.style.display = 'inline-block';
+                    saveBtn.style.display = 'none';
+                    cancelBtn.style.display = 'none';
+                    // Restore original value
+                    scheduleInput.value = originalSchedule;
+                });
+
+                const updateTask = () => {
+                    const newSchedule = scheduleInput.value;
+                    const isEnabled = enabledToggle.checked;
+
+                    // Basic validation for crontab
+                    if (newSchedule.split(' ').length !== 5) {
+                        alert('Crontab 스케줄은 5개의 파트여야 합니다 (예: "0 9 * * *").');
+                        return;
+                    }
+
+                    fetch("{% url 'trading:update_task_schedule' %}", {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({
+                            task_id: taskId,
+                            schedule: newSchedule,
+                            enabled: isEnabled
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // Update UI
+                            scheduleText.textContent = newSchedule;
+                            originalSchedule = newSchedule; // Update original value on success
+                            originalEnabled = isEnabled;
+                            // Switch back to display mode
+                            cancelBtn.click();
+                        } else {
+                            alert('오류: ' + data.message);
+                            // Revert toggle on failure
+                            enabledToggle.checked = originalEnabled;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error updating task:', error);
+                        alert('작업 업데이트 중 오류가 발생했습니다.');
+                        enabledToggle.checked = originalEnabled;
+                    });
+                };
+
+                saveBtn.addEventListener('click', updateTask);
+                enabledToggle.addEventListener('change', updateTask);
+            });
         });
     </script>
 </body>
