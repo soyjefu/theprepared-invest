@@ -108,7 +108,13 @@ class KISApiClient:
                     response = requests.post(url, headers=headers, data=json.dumps(body))
 
                 response.raise_for_status()
-                return KISAPIResponse(response)
+                api_response = KISAPIResponse(response)
+                if not api_response.is_ok():
+                    logger.warning(f"KIS API call was not successful (rt_cd != '0'). "
+                                   f"URL: {url}, "
+                                   f"TR_ID: {headers.get('tr_id')}, "
+                                   f"Response: {api_response.text}")
+                return api_response
             except requests.exceptions.RequestException as e:
                 logger.warning(f"Request failed: {e}. Retrying ({i+1}/{retries}) in {delay} seconds...")
                 time.sleep(delay)

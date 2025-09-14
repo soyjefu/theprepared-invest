@@ -5,77 +5,79 @@ from .models import StrategySettings, Portfolio, TradeLog, AnalyzedStock, Tradin
 from .kis_client import KISApiClient
 from .tasks import analyze_stocks_task
 from decimal import Decimal
+import logging
+from django.http import JsonResponse, HttpResponseRedirect
+from django.core.cache import cache
+from django.urls import reverse
+
+logger = logging.getLogger(__name__)
+
+def root_redirect(request):
+    """
+    Redirects the root URL ('/') to the main dashboard ('/dashboard/').
+    """
+    return HttpResponseRedirect(reverse('trading:dashboard'))
 
 @login_required
 def dashboard(request):
     """
     Displays the main monitoring dashboard for the trading application.
-    Supports switching between multiple accounts via a GET parameter.
+    Shows a consolidated view of all active accounts.
     """
     context = {}
-
-    # 1. Handle Account Selection
     all_accounts = TradingAccount.objects.filter(user=request.user, is_active=True)
-    selected_account_id = request.GET.get('account_id')
 
-    if selected_account_id:
-        selected_account = all_accounts.filter(pk=selected_account_id).first()
-    else:
-        selected_account = all_accounts.first()
+    account_details = []
+    grand_total_assets = Decimal('0.0')
 
-    context['all_accounts'] = all_accounts
-    context['selected_account'] = selected_account
+    for account in all_accounts:
+        detail = {
+            'account': account,
+            'balance_summary': None,
+            'positions': [],
+            'error': None
+        }
+        try:
+            client = KISApiClient(
+                app_key=account.app_key,
+                app_secret=account.app_secret,
+                account_no=account.account_number,
+                account_type=account.account_type
+            )
+            balance_res = client.get_account_balance()
 
-    # 2. Get Account Balance from API for the selected account
-    if selected_account:
-        client = KISApiClient(app_key=selected_account.app_key, app_secret=selected_account.app_secret, account_no=selected_account.account_number, account_type=selected_account.account_type)
-        balance_info_res = client.get_account_balance()
-        if balance_info_res and balance_info_res.is_ok():
-            balance_info = balance_info_res.get_body()
-            output1_list = balance_info.get('output1', [])
-            if output1_list:
-                context['balance'] = output1_list[0]
+            if balance_res and balance_res.is_ok():
+                body = balance_res.get_body()
+
+                # Correctly parse balance summary from output2
+                balance_summary_list = body.get('output2', [])
+                if balance_summary_list:
+                    summary = balance_summary_list[0]
+                    detail['balance_summary'] = summary
+                    grand_total_assets += Decimal(summary.get('tot_evlu_amt', '0'))
+
+                # Get positions from output1
+                detail['positions'] = body.get('output1', [])
             else:
-                context['balance'] = None
-                context['balance_error'] = "API returned empty balance information."
-        else:
-            context['balance'] = None
-            error_msg = balance_info_res.get_error_message() if balance_info_res else "No response from API."
-            context['balance_error'] = f"Failed to fetch account balance: {error_msg}"
-    else:
-        context['balance'] = None
+                error_msg = balance_res.get_error_message() if balance_res else "No response from API."
+                detail['error'] = f"API Error: {error_msg}"
+        except Exception as e:
+            logger.error(f"Error fetching balance for account {account.account_name}: {e}", exc_info=True)
+            detail['error'] = f"Application Error: {e}"
 
-    # 3. Get strategy settings
+        account_details.append(detail)
+
+    context['account_details'] = account_details
+    context['grand_total_assets'] = grand_total_assets
+
+    # Get strategy settings
     context['settings'] = StrategySettings.objects.first()
 
-    # 4. Get open positions and calculate P/L for the selected account
-    open_positions = Portfolio.objects.filter(is_open=True, account=selected_account) if selected_account else []
+    # Get all analyzed stocks for display
+    context['analyzed_stocks'] = AnalyzedStock.objects.filter(is_investable=True).order_by('-analysis_date')[:20]
 
-    analyzed_stocks = {stock.symbol: stock.last_price for stock in AnalyzedStock.objects.all()}
-    positions_with_pl = []
-    total_pl = Decimal('0.0')
-
-    for pos in open_positions:
-        current_price = analyzed_stocks.get(pos.symbol, pos.average_buy_price)
-        market_value = pos.quantity * current_price
-        cost_basis = pos.quantity * pos.average_buy_price
-        pl = market_value - cost_basis
-        pl_percent = (pl / cost_basis) * 100 if cost_basis > 0 else 0
-
-        positions_with_pl.append({
-            'position': pos,
-            'current_price': current_price,
-            'market_value': market_value,
-            'pl': pl,
-            'pl_percent': pl_percent,
-        })
-        total_pl += pl
-
-    context['open_positions'] = positions_with_pl
-    context['total_pl'] = total_pl
-
-    # 5. Get recent trade logs for the selected account
-    context['recent_trades'] = TradeLog.objects.filter(account=selected_account).order_by('-timestamp')[:20] if selected_account else []
+    # Get recent trade logs for all accounts
+    context['recent_trades'] = TradeLog.objects.filter(account__in=all_accounts).order_by('-timestamp')[:20]
 
     return render(request, 'trading/dashboard.html', context)
 
@@ -89,3 +91,12 @@ def trigger_stock_analysis(request):
         analyze_stocks_task.delay()
         messages.success(request, "수동 주식 분석 작업이 시작되었습니다. 잠시 후 결과가 대시보드에 반영됩니다.")
     return redirect('trading:dashboard')
+
+def get_analysis_status(request):
+    """
+    Gets the status of the running analysis task from the cache.
+    """
+    progress_data = cache.get('analysis_progress')
+    if progress_data:
+        return JsonResponse(progress_data)
+    return JsonResponse({'status': 'idle', 'progress': 0})

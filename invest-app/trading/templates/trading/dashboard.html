@@ -1,159 +1,218 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
     <title>Trading Dashboard</title>
     <style>
-        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f9; color: #333; }
-        h1, h2 { color: #444; }
-        .container { background-color: #fff; padding: 2em; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .section { margin-bottom: 2em; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 0.8em; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background-color: #eef; }
-        .pl-positive { color: green; }
-        .pl-negative { color: red; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; background-color: #f0f2f5; color: #333; }
+        .header { background-color: #fff; padding: 1em 2em; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { margin: 0; color: #1a2c5b; }
+        .container { padding: 2em; max-width: 1200px; margin: 0 auto; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 2em; }
+        .card { background-color: #fff; padding: 1.5em; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 2em; }
+        h2 { color: #1a2c5b; border-bottom: 2px solid #eef; padding-bottom: 0.5em; margin-top: 0; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        th, td { padding: 0.8em; text-align: left; border-bottom: 1px solid #eee; }
+        th { background-color: #f7f7f7; font-weight: 600; }
+        td.number, th.number { text-align: right; }
+        .pl-positive { color: #c0392b; } /* Red for profit in Korea */
+        .pl-negative { color: #2980b9; } /* Blue for loss in Korea */
+        .messages { padding: 1em; margin-bottom: 1em; border-radius: 4px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { color: #c0392b; font-weight: bold; }
+        button { background-color: #3498db; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
+        button:hover { background-color: #2980b9; }
+        .progress-section { display: none; } /* Initially hidden */
+        .progress-bar-container { background-color: #e0e0e0; border-radius: 4px; padding: 3px; }
+        .progress-bar { background-color: #3498db; height: 20px; border-radius: 2px; width: 0%; transition: width 0.3s ease-in-out; }
     </style>
 </head>
 <body>
+    <header class="header">
+        <h1>종합 트레이딩 대시보드</h1>
+        <div>
+            <strong>총 자산:</strong> <span id="grand-total-assets">{{ grand_total_assets|floatformat:"0" }}</span> KRW
+        </div>
+    </header>
+
     <div class="container">
-        <h1>Trading Dashboard</h1>
 
         {% if messages %}
-            <div class="messages" style="padding: 1em; margin-bottom: 1em; border-radius: 4px; background-color: #d4edda; color: #155724;">
+            <div class="messages">
                 {% for message in messages %}
                     <p>{{ message }}</p>
                 {% endfor %}
             </div>
         {% endif %}
 
-        {% if all_accounts %}
-        <div class="section">
-            <form method="get" action="">
-                <label for="account_id">Select Account:</label>
-                <select name="account_id" id="account_id" onchange="this.form.submit()">
-                    {% for acc in all_accounts %}
-                        <option value="{{ acc.pk }}" {% if acc.pk == selected_account.pk %}selected{% endif %}>
-                            {{ acc.account_name }} ({{ acc.account_number }})
-                        </option>
-                    {% endfor %}
-                </select>
-            </form>
-        </div>
-        {% endif %}
+        <div class="card">
+            <h2>계좌 종합 현황</h2>
+            {% for detail in account_details %}
+                <div class="account-summary" style="margin-bottom: 2em;">
+                    <h3>{{ detail.account.account_name }} ({{ detail.account.account_number }})</h3>
+                    {% if detail.error %}
+                        <p class="error">{{ detail.error }}</p>
+                    {% elif detail.balance_summary %}
+                        <table>
+                            <tr>
+                                <th>총 평가금액</th><td class="number">{{ detail.balance_summary.tot_evlu_amt|floatformat:"0" }} 원</td>
+                                <th>예수금</th><td class="number">{{ detail.balance_summary.dnca_tot_amt|floatformat:"0" }} 원</td>
+                            </tr>
+                            <tr>
+                                <th>총 평가손익률</th><td class="number {% if detail.balance_summary.tot_pftrt|floatformat > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ detail.balance_summary.tot_pftrt|floatformat:"2" }}%</td>
+                                <th>총 평가손익</th><td class="number">{{ detail.balance_summary.tot_pfls_amt|floatformat:"0" }} 원</td>
+                            </tr>
+                        </table>
 
-        <div class="section">
-            <h2>Account Summary</h2>
-            {% if selected_account %}
-                <p><strong>Account:</strong> {{ selected_account.account_name }} ({{ selected_account.account_number }})</p>
-                {% if balance %}
+                        <h4 style="margin-top: 1.5em;">보유 종목</h4>
+                        {% if detail.positions %}
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>종목명</th>
+                                        <th class="number">보유수량</th>
+                                        <th class="number">평가금액</th>
+                                        <th class="number">수익률(%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {% for pos in detail.positions %}
+                                    <tr>
+                                        <td>{{ pos.prdt_name }} ({{ pos.pdno }})</td>
+                                        <td class="number">{{ pos.hldg_qty }}</td>
+                                        <td class="number">{{ pos.evlu_amt|floatformat:"0" }}</td>
+                                        <td class="number {% if pos.evlu_pfls_rt|floatformat > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ pos.evlu_pfls_rt|floatformat:"2" }}</td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        {% else %}
+                            <p>보유 종목이 없습니다.</p>
+                        {% endif %}
+                    {% endif %}
+                </div>
+                {% if not forloop.last %}<hr style="border: 0; border-top: 1px solid #eee; margin: 2em 0;">{% endif %}
+            {% empty %}
+                <p>활성화된 계좌가 없습니다. 관리자 페이지에서 계좌를 추가해주세요.</p>
+            {% endfor %}
+        </div>
+
+        <div class="grid-container">
+            <div class="card">
+                <h2>AI 분석 기반 추천 종목</h2>
+                {% if analyzed_stocks %}
                     <table>
-                        <tr>
-                            <th>Total Assets</th>
-                            <td>{{ balance.tot_evlu_amt|floatformat:0 }} KRW</td>
-                        </tr>
-                        <tr>
-                            <th>Cash Balance</th>
-                            <td>{{ balance.dnca_tot_amt|floatformat:0 }} KRW</td>
-                        </tr>
-                        <tr>
-                            <th>Total Profit/Loss Rate</th>
-                            <td class="{% if balance.tot_pftrt > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ balance.tot_pftrt|floatformat:2 }}%</td>
-                        </tr>
+                        <thead>
+                            <tr>
+                                <th>종목명</th>
+                                <th>종목코드</th>
+                                <th>분석일</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for stock in analyzed_stocks %}
+                            <tr>
+                                <td>{{ stock.stock_name }}</td>
+                                <td>{{ stock.symbol }}</td>
+                                <td>{{ stock.analysis_date|date:"Y-m-d" }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
                     </table>
-                {% elif balance_error %}
-                    <p style="color: red;">{{ balance_error }}</p>
                 {% else %}
-                    <p>Loading account balance...</p>
+                    <p>분석된 종목이 없습니다.</p>
                 {% endif %}
-            {% else %}
-                <p>No active trading account found. Please configure one in the admin panel.</p>
-            {% endif %}
+            </div>
+
+            <div class="card">
+                <h2>투자 전략 및 수동 분석</h2>
+                {% if settings %}
+                    <p>
+                        <strong>단기:</strong> {{ settings.short_term_allocation }}% |
+                        <strong>중기:</strong> {{ settings.mid_term_allocation }}% |
+                        <strong>장기:</strong> {{ settings.long_term_allocation }}%
+                    </p>
+                {% else %}
+                    <p>전략 설정이 필요합니다.</p>
+                {% endif %}
+                <form action="{% url 'trading:run_analysis' %}" method="post" style="margin-top: 1em;">
+                    {% csrf_token %}
+                    <button type="submit">수동으로 종목 분석 실행</button>
+                </form>
+                <div id="analysis-progress-section" class="progress-section" style="margin-top: 1em;">
+                    <h4>분석 진행률</h4>
+                    <div class="progress-bar-container">
+                        <div id="analysis-progress-bar" class="progress-bar"></div>
+                    </div>
+                    <span id="analysis-status-text" style="font-size: 0.9em; margin-top: 0.5em; display: block;"></span>
+                </div>
+            </div>
         </div>
 
-        <div class="section">
-            <h2>AI Strategy Settings</h2>
-            {% if settings %}
-                <p>
-                    <strong>Short-Term Allocation:</strong> {{ settings.short_term_allocation }}%<br>
-                    <strong>Mid-Term Allocation:</strong> {{ settings.mid_term_allocation }}%<br>
-                    <strong>Long-Term Allocation:</strong> {{ settings.long_term_allocation }}%<br>
-                    <em>Last Updated: {{ settings.updated_at|date:"Y-m-d H:i" }}</em>
-                </p>
-            {% else %}
-                <p>Strategy settings have not been configured in the admin yet.</p>
-            {% endif %}
-            <form action="{% url 'trading:run_analysis' %}" method="post" style="margin-top: 1em;">
-                {% csrf_token %}
-                <button type="submit">Run Stock Analysis Manually</button>
-            </form>
-        </div>
-
-        <div class="section">
-            <h2>Open Positions (Total P/L: <span class="{% if total_pl > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ total_pl|floatformat:2 }}</span>)</h2>
-            {% if open_positions %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Symbol</th>
-                            <th>Quantity</th>
-                            <th>Avg. Buy Price</th>
-                            <th>Current Price</th>
-                            <th>Market Value</th>
-                            <th>P/L</th>
-                            <th>P/L %</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in open_positions %}
-                            <tr>
-                                <td>{{ item.position.stock_name }} ({{ item.position.symbol }})</td>
-                                <td>{{ item.position.quantity }}</td>
-                                <td>{{ item.position.average_buy_price|floatformat:2 }}</td>
-                                <td>{{ item.current_price|floatformat:2 }}</td>
-                                <td>{{ item.market_value|floatformat:2 }}</td>
-                                <td class="{% if item.pl > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ item.pl|floatformat:2 }}</td>
-                                <td class="{% if item.pl > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ item.pl_percent|floatformat:2 }}%</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>No open positions for this account.</p>
-            {% endif %}
-        </div>
-
-        <div class="section">
-            <h2>Recent Trades</h2>
-            {% if recent_trades %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Timestamp</th>
-                            <th>Symbol</th>
-                            <th>Type</th>
-                            <th>Quantity</th>
-                            <th>Price</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for trade in recent_trades %}
-                            <tr>
-                                <td>{{ trade.timestamp|date:"Y-m-d H:i:s" }}</td>
-                                <td>{{ trade.symbol }}</td>
-                                <td>{{ trade.get_trade_type_display }}</td>
-                                <td>{{ trade.quantity }}</td>
-                                <td>{{ trade.price|floatformat:2 }}</td>
-                                <td>{{ trade.get_status_display }}</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>No recent trades found.</p>
-            {% endif %}
-        </div>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const analysisForm = document.querySelector('form[action="{% url 'trading:run_analysis' %}"]');
+            const progressSection = document.getElementById('analysis-progress-section');
+            const progressBar = document.getElementById('analysis-progress-bar');
+            const statusText = document.getElementById('analysis-status-text');
+            let pollingInterval;
+
+            function checkStatus() {
+                fetch("{% url 'trading:get_analysis_status' %}")
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'idle' && pollingInterval) {
+                            clearInterval(pollingInterval);
+                            pollingInterval = null;
+                            progressSection.style.display = 'none';
+                            return;
+                        }
+
+                        if (data.status !== 'idle') {
+                            progressSection.style.display = 'block';
+                            const progress = data.progress < 0 ? 100 : data.progress; // Show full bar on error
+                            progressBar.style.width = progress + '%';
+                            statusText.textContent = data.status;
+
+                            if (data.progress < 0) { // Error case
+                                progressBar.style.backgroundColor = '#c0392b';
+                                clearInterval(pollingInterval);
+                                pollingInterval = null;
+                            } else if (data.progress >= 100) { // Completion case
+                                progressBar.style.backgroundColor = '#27ae60'; // Green
+                                setTimeout(() => {
+                                    progressSection.style.display = 'none';
+                                    progressBar.style.backgroundColor = '#3498db'; // Reset color
+                                }, 5000); // Hide after 5 seconds
+                                clearInterval(pollingInterval);
+                                pollingInterval = null;
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching analysis status:', error);
+                        if(pollingInterval) {
+                            clearInterval(pollingInterval);
+                            pollingInterval = null;
+                        }
+                    });
+            }
+
+            analysisForm.addEventListener('submit', function() {
+                // Immediately show progress and start polling
+                progressSection.style.display = 'block';
+                progressBar.style.width = '0%';
+                statusText.textContent = '분석 작업을 시작합니다...';
+
+                if (!pollingInterval) {
+                    pollingInterval = setInterval(checkStatus, 2000); // Poll every 2 seconds
+                }
+            });
+
+            // Check status on page load in case a task is already running
+            checkStatus();
+        });
+    </script>
 </body>
 </html>

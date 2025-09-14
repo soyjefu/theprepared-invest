@@ -1,5 +1,6 @@
 import logging
 from celery import shared_task
+from django.core.cache import cache
 from .models import AnalyzedStock, TradingAccount
 from .analysis.market_scanner import screen_initial_stocks
 from .ai_analysis_service import analyze_stock
@@ -26,11 +27,12 @@ def analyze_stocks_task():
     투자 기간(horizon)과 리스크 관리 기준을 결정하여 DB에 업데이트합니다.
     """
     logger.info("Celery Task: Starting AI stock analysis.")
+    cache.set('analysis_progress', {'status': '분석 시작 중...', 'progress': 0}, timeout=300)
     
-    # API 호출을 위한 기본 계정 설정
     first_account = TradingAccount.objects.filter(is_active=True).first()
     if not first_account:
         logger.error("No active trading account found for API calls. Aborting analysis.")
+        cache.set('analysis_progress', {'status': '오류: 활성 계좌 없음', 'progress': -1}, timeout=300)
         return
 
     client = KISApiClient(
@@ -40,16 +42,20 @@ def analyze_stocks_task():
         account_type=first_account.account_type
     )
 
-    # 분석 대상 종목 조회
     stocks_to_analyze = AnalyzedStock.objects.filter(is_investable=True)
-    logger.info(f"Found {stocks_to_analyze.count()} stocks to analyze.")
+    total_stocks = stocks_to_analyze.count()
+    logger.info(f"Found {total_stocks} stocks to analyze.")
 
-    for stock in stocks_to_analyze:
+    if total_stocks == 0:
+        logger.info("No stocks to analyze.")
+        cache.set('analysis_progress', {'status': '완료: 분석할 종목 없음', 'progress': 100}, timeout=60)
+        return
+
+    for i, stock in enumerate(stocks_to_analyze):
         try:
             analysis_result = analyze_stock(stock.symbol, client)
             if analysis_result:
                 stock.investment_horizon = analysis_result.horizon
-                # raw_analysis_data에 분석 결과의 핵심 지표들을 저장
                 stock.raw_analysis_data = {
                     'stop_loss_price': analysis_result.stop_loss_price,
                     'target_price': analysis_result.target_price,
@@ -62,7 +68,12 @@ def analyze_stocks_task():
         except Exception as e:
             logger.error(f"An error occurred during analysis of {stock.symbol}: {e}", exc_info=True)
 
+        progress = int(((i + 1) / total_stocks) * 100)
+        status_text = f"분석 중: {stock.stock_name} ({i + 1}/{total_stocks})"
+        cache.set('analysis_progress', {'status': status_text, 'progress': progress}, timeout=300)
+
     logger.info("Celery Task: AI stock analysis finished.")
+    cache.set('analysis_progress', {'status': '분석 완료', 'progress': 100}, timeout=60)
 
 
 from decimal import Decimal
