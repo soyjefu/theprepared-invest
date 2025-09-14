@@ -100,3 +100,57 @@ def get_analysis_status(request):
     if progress_data:
         return JsonResponse(progress_data)
     return JsonResponse({'status': 'idle', 'progress': 0})
+
+import json
+from .analysis.market_scanner import screen_initial_stocks
+from .ai_analysis_service import get_detailed_strategy
+from dataclasses import asdict
+
+@login_required
+def investment_strategy(request):
+    """
+    Handles the multi-step, interactive investment strategy analysis.
+    - GET: Renders the main page.
+    - POST with action 'screen_stocks': Runs the initial screening and returns a list of stocks.
+    - POST with action 'get_strategy': Returns a detailed investment strategy for a given stock.
+    """
+    if request.method == 'POST' and request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        action = request.GET.get('action')
+
+        if action == 'screen_stocks':
+            try:
+                screen_initial_stocks()
+                investable_stocks = AnalyzedStock.objects.filter(is_investable=True).order_by('stock_name')
+
+                stock_list = list(investable_stocks.values('stock_name', 'symbol', 'last_price'))
+
+                return JsonResponse({'status': 'success', 'stocks': stock_list})
+            except Exception as e:
+                logger.error(f"Error during stock screening: {e}", exc_info=True)
+                return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+        elif action == 'get_strategy':
+            try:
+                data = json.loads(request.body)
+                symbol = data.get('symbol')
+                horizon = data.get('horizon')
+
+                if not symbol or not horizon:
+                    return JsonResponse({'status': 'error', 'message': 'Symbol and horizon are required.'}, status=400)
+
+                strategy_result = get_detailed_strategy(request.user, symbol, horizon)
+
+                if strategy_result:
+                    return JsonResponse({'status': 'success', 'strategy': asdict(strategy_result)})
+                else:
+                    return JsonResponse({'status': 'error', 'message': 'Failed to generate strategy.'}, status=500)
+
+            except Exception as e:
+                logger.error(f"Error getting strategy: {e}", exc_info=True)
+                return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+        return JsonResponse({'status': 'error', 'message': 'Invalid action'}, status=400)
+
+    # For standard GET requests, just render the page template.
+    context = {}
+    return render(request, 'trading/investment_strategy.html', context)

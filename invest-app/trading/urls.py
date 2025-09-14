@@ -9,4 +9,5 @@ urlpatterns = [
     path('dashboard/', views.dashboard, name='dashboard'),
     path('analysis/run/', views.trigger_stock_analysis, name='run_analysis'),
     path('analysis/status/', views.get_analysis_status, name='get_analysis_status'),
+    path('investment_strategy/', views.investment_strategy, name='investment_strategy'),
 ]

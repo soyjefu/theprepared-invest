@@ -18,6 +18,121 @@ class StockAnalysisResult:
     target_price: float
     raw_data: Dict[str, Any]
 
+from decimal import Decimal
+
+@dataclass
+class DetailedStrategyResult:
+    buy_quantity: int
+    target_price: float
+    stop_loss_price: float
+    raw_data: Dict[str, Any]
+
+def get_detailed_strategy(user, symbol: str, horizon: str) -> DetailedStrategyResult:
+    """
+    Generates a detailed, actionable trading strategy for a given stock and investment horizon,
+    including a calculated buy quantity based on the user's available cash.
+    """
+    logger.info(f"AI Service: Starting detailed strategy analysis for symbol {symbol}, horizon {horizon}...")
+
+    # 1. Get user's active account and initialize API client
+    try:
+        account = TradingAccount.objects.filter(user=user, is_active=True).first()
+        if not account:
+            raise ValueError("User does not have an active trading account.")
+
+        client = KISApiClient(
+            app_key=account.app_key,
+            app_secret=account.app_secret,
+            account_no=account.account_number,
+            account_type=account.account_type
+        )
+    except Exception as e:
+        logger.error(f"Failed to initialize client for user {user}: {e}", exc_info=True)
+        return None
+
+    # 2. Fetch and prepare data (same as analyze_stock)
+    try:
+        history_response = client.get_daily_price_history(symbol, days=730)
+        if not history_response or not history_response.is_ok():
+            logger.error(f"Failed to fetch historical data for {symbol}: {history_response.get_error_message()}")
+            return None
+
+        price_history = history_response.get_body().get('output2')
+        if not price_history:
+            logger.warning(f"No historical data in response for {symbol}.")
+            return None
+
+        df = pd.DataFrame(price_history)
+        df['stck_bsop_date'] = pd.to_datetime(df['stck_bsop_date'], format='%Y%m%d')
+        numeric_cols = ['stck_clpr', 'stck_oprc', 'stck_hgpr', 'stck_lwpr', 'acml_vol', 'acml_tr_pbmn']
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        df = df.set_index('stck_bsop_date').sort_index()
+        df.rename(columns={'stck_oprc': 'open', 'stck_hgpr': 'high', 'stck_lwpr': 'low', 'stck_clpr': 'close', 'acml_vol': 'volume'}, inplace=True)
+        df.dropna(inplace=True)
+
+    except Exception as e:
+        logger.error(f"Error processing data for {symbol}: {e}", exc_info=True)
+        return None
+
+    if df.empty:
+        logger.warning(f"No historical data available for {symbol} after processing.")
+        return None
+
+    # 3. Technical Analysis (same as analyze_stock)
+    try:
+        df.ta.atr(length=14, append=True)
+        latest_indicators = df.iloc[-1]
+        latest_close = latest_indicators['close']
+        latest_atr = latest_indicators.get('ATRr_14')
+        if not latest_atr or latest_atr == 0:
+            latest_atr = latest_close * 0.05 # Fallback ATR
+    except Exception as e:
+        logger.error(f"Failed to calculate technical indicators for {symbol}: {e}", exc_info=True)
+        return None
+
+    # 4. Horizon-adjusted Risk Levels
+    horizon_factors = {
+        'SHORT': {'stop_loss': 1.5, 'target': 3.0},
+        'MID': {'stop_loss': 2.0, 'target': 4.0},
+        'LONG': {'stop_loss': 2.5, 'target': 5.0}
+    }
+    factors = horizon_factors.get(horizon, horizon_factors['MID']) # Default to MID
+    stop_loss_price = latest_close - (factors['stop_loss'] * latest_atr)
+    target_price = latest_close + (factors['target'] * latest_atr)
+
+    # 5. Calculate Buy Quantity based on account balance
+    buy_quantity = 0
+    try:
+        balance_res = client.get_account_balance()
+        if balance_res and balance_res.is_ok():
+            body = balance_res.get_body()
+            summary = body.get('output2', [{}])[0]
+            cash_available = Decimal(summary.get('dnca_tot_amt', '0'))
+
+            # Use 20% of available cash for this position
+            position_budget = cash_available * Decimal('0.20')
+
+            if latest_close > 0:
+                buy_quantity = int(position_budget // Decimal(latest_close))
+        else:
+            logger.warning(f"Could not retrieve account balance for user {user}. Buy quantity set to 0.")
+
+    except Exception as e:
+        logger.error(f"Error calculating buy quantity for user {user}: {e}", exc_info=True)
+
+    logger.info(f"Strategy for {symbol} ({horizon}): Buy {buy_quantity} shares, SL: {stop_loss_price:.2f}, TP: {target_price:.2f}")
+
+    # 6. Return detailed result
+    return DetailedStrategyResult(
+        buy_quantity=buy_quantity,
+        target_price=round(target_price, 2),
+        stop_loss_price=round(stop_loss_price, 2),
+        raw_data={'latest_close': latest_close, 'latest_atr': latest_atr}
+    )
+
+
 def analyze_stock(symbol: str, client: KISApiClient) -> StockAnalysisResult:
     """
     Analyzes a stock's historical data to forecast future price, classify an investment
