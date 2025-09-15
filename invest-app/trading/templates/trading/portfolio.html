@@ -1,0 +1,153 @@
+{% extends "trading/_base.html" %}
+{% load humanize %}
+
+{% block title %}포트폴리오 관리 - Trading Dashboard{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>계좌별 포트폴리오</h2>
+    <p>보유 종목의 리스크 관리 기준(손절매, 목표가)을 수정하고 저장할 수 있습니다.</p>
+
+    {% for item in portfolio_items %}
+    {% if forloop.first or item.account_id != forloop.previous.account_id %}
+        {% if not forloop.first %}
+                </tbody>
+            </table>
+        {% endif %}
+        <h3 style="margin-top: 2em;">{{ item.account.account_name }}</h3>
+        <table class="portfolio-table">
+            <thead>
+                <tr>
+                    <th>종목명</th>
+                    <th class="number">보유수량</th>
+                    <th class="number">평균단가</th>
+                    <th class="number">목표가</th>
+                    <th class="number">손절가</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+    {% endif %}
+                <tr data-portfolio-id="{{ item.id }}">
+                    <td>{{ item.stock_name }} ({{ item.symbol }})</td>
+                    <td class="number">{{ item.quantity|intcomma }}</td>
+                    <td class="number">{{ item.average_buy_price|intcomma }}</td>
+                    <td><input type="text" class="number-input target-price-input" value="{{ item.target_price|intcomma }}"></td>
+                    <td><input type="text" class="number-input stop-loss-input" value="{{ item.stop_loss_price|intcomma }}"></td>
+                    <td>
+                        <button class="action-btn save-portfolio-btn">저장</button>
+                        <span class="save-status" style="margin-left: 10px;"></span>
+                    </td>
+                </tr>
+    {% if forloop.last %}
+            </tbody>
+        </table>
+    {% endif %}
+    {% empty %}
+    <p>보유 중인 포트폴리오가 없습니다.</p>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h2>포트폴리오 현금화</h2>
+    <p>목표 현금 비중을 설정하면, 시스템이 수익이 난 단기 투자 종목부터 우선적으로 매도하여 비중을 맞춥니다.</p>
+    <div id="liquidate-form">
+        <label for="target-cash">목표 현금 비중 (%):</label>
+        <input type="number" id="target-cash" min="0" max="100" step="1" value="10">
+        <button id="liquidate-btn">실행</button>
+        <div id="liquidate-status" style="margin-top: 1em;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // --- Portfolio Item Update Logic ---
+    document.querySelectorAll('.save-portfolio-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            const row = this.closest('tr');
+            const portfolioId = row.dataset.portfolioId;
+            const statusEl = row.querySelector('.save-status');
+
+            const targetPrice = row.querySelector('.target-price-input').value.replace(/,/g, '');
+            const stopLossPrice = row.querySelector('.stop-loss-input').value.replace(/,/g, '');
+
+            statusEl.textContent = '저장 중...';
+            statusEl.style.color = '#333';
+
+            fetch(`/api/portfolio/${portfolioId}/`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({
+                    target_price: targetPrice,
+                    stop_loss_price: stopLossPrice
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(JSON.stringify(err)) });
+                }
+                return response.json();
+            })
+            .then(data => {
+                statusEl.textContent = '저장 완료!';
+                statusEl.style.color = 'green';
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
+            })
+            .catch(error => {
+                console.error('Error updating portfolio:', error);
+                statusEl.textContent = '오류 발생';
+                statusEl.style.color = 'red';
+            });
+        });
+    });
+
+    // --- Liquidation Logic ---
+    const liquidateBtn = document.getElementById('liquidate-btn');
+    if(liquidateBtn) {
+        liquidateBtn.addEventListener('click', function() {
+            const targetCash = document.getElementById('target-cash').value;
+            const statusEl = document.getElementById('liquidate-status');
+            const accountId = "{{ request.user.tradingaccount_set.first.id }}"; // Using first account for simplicity
+
+            if (!accountId) {
+                statusEl.textContent = '오류: 유효한 계좌를 찾을 수 없습니다.';
+                statusEl.style.color = 'red';
+                return;
+            }
+
+            statusEl.textContent = '현금화 작업 실행 중...';
+            statusEl.style.color = '#333';
+
+            fetch(`/api/accounts/${accountId}/liquidate/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({
+                    target_cash_percentage: targetCash
+                })
+            })
+            .then(response => response.json().then(data => ({ ok: response.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok) {
+                    throw new Error(JSON.stringify(data));
+                }
+                statusEl.textContent = `작업 완료: ${data.message}`;
+                statusEl.style.color = 'green';
+            })
+            .catch(error => {
+                console.error('Error during liquidation:', error);
+                statusEl.textContent = `오류 발생: ${error.message}`;
+                statusEl.style.color = 'red';
+            });
+        });
+    }
+});
+</script>
+{% endblock %}

@@ -1,7 +1,3 @@
-networks:
-  theprepared:
-    external: true
-
 volumes:
   invest_logs: 
 services:
@@ -10,7 +6,9 @@ services:
       context: ./invest-app
     container_name: invest_app
     restart: unless-stopped
-    command: sh -c "./wait-for-postgres.sh postgres_db gunicorn invest.wsgi:application --bind 0.0.0.0:8000"
+    command: sh -c "./wait-for-postgres.sh postgres_db && python manage.py migrate && python manage.py create_test_user && gunicorn invest.wsgi:application --bind 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
     volumes:
       - ./invest-app:/app
       - invest_logs:/app/logs
@@ -24,8 +22,6 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
 
-    networks:
-      - theprepared
     stdin_open: true
     tty: true
 
@@ -44,8 +40,6 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
 
-    networks:
-      - theprepared
     restart: unless-stopped
 
   celery-beat:
@@ -63,7 +57,5 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
 
-    networks:
-      - theprepared
     restart: unless-stopped
 

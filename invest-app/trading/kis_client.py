@@ -14,6 +14,8 @@ from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 import asyncio
+from decimal import Decimal
+from trading.models import TradeLog, TradingAccount
 
 logger = logging.getLogger(__name__)
 
@@ -136,13 +138,93 @@ class KISApiClient:
         params = { "FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol }
         return self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
 
-    def place_order(self, symbol, quantity, price, order_type='BUY', order_division="00"):
+    def place_order(self, account: TradingAccount, symbol: str, quantity: int, price: int, order_type: str, order_division="00"):
+        """
+        Places a buy or sell order after performing server-side validation.
+
+        Args:
+            account: The TradingAccount instance for this order.
+            symbol: The stock symbol (ticker).
+            quantity: The number of shares to trade.
+            price: The price per share.
+            order_type: 'BUY' or 'SELL'.
+            order_division: The order type code (e.g., "00" for limit order).
+
+        Returns:
+            A dictionary with the API response or an error message.
+        """
+        logger.info(f"Order received for Account ID {account.id}: {order_type} {quantity} of {symbol} @ {price}")
+
+        # 1. Check for duplicate pending orders
+        if TradeLog.objects.filter(account=account, symbol=symbol, trade_type=order_type.upper(), status='PENDING').exists():
+            msg = f"Duplicate order prevented for {symbol}. An order is already pending."
+            logger.warning(msg)
+            return {'rt_cd': '99', 'msg1': msg, 'is_validation_error': True}
+
+        # 2. Check balance and holdings
+        balance_res = self.get_account_balance()
+        if not balance_res or not balance_res.is_ok():
+            msg = "Failed to verify account balance before placing order."
+            logger.error(f"{msg} Response: {balance_res.text if balance_res else 'No Response'}")
+            return {'rt_cd': '99', 'msg1': msg, 'is_validation_error': True}
+
+        balance_body = balance_res.get_body()
+
+        if order_type.upper() == 'BUY':
+            cash_available = Decimal(balance_body.get('output2', [{}])[0].get('dnca_tot_amt', '0'))
+            order_total = Decimal(quantity) * Decimal(price)
+            if cash_available < order_total:
+                msg = f"Insufficient funds to place buy order for {symbol}. Required: {order_total}, Available: {cash_available}"
+                logger.warning(msg)
+                return {'rt_cd': '99', 'msg1': msg, 'is_validation_error': True}
+
+        elif order_type.upper() == 'SELL':
+            holdings = balance_body.get('output1', [])
+            stock_holding = next((item for item in holdings if item['pdno'] == symbol), None)
+            if not stock_holding or int(stock_holding.get('hldg_qty', 0)) < quantity:
+                held_qty = stock_holding.get('hldg_qty', 0) if stock_holding else 0
+                msg = f"Insufficient holdings to place sell order for {symbol}. Required: {quantity}, Held: {held_qty}"
+                logger.warning(msg)
+                return {'rt_cd': '99', 'msg1': msg, 'is_validation_error': True}
+
+        # 3. Create a pending TradeLog BEFORE sending the order
+        pending_log = TradeLog.objects.create(
+            account=account,
+            symbol=symbol,
+            order_id='N/A_PENDING', # Placeholder ID
+            trade_type=order_type.upper(),
+            quantity=quantity,
+            price=price,
+            status='PENDING',
+            log_message=f"Order validation passed. Sending to broker."
+        )
+
+        # 4. Proceed with placing the order via API
         path = "/uapi/domestic-stock/v1/trading/order-cash"
         tr_id = ("VTTC0802U" if order_type.upper() == 'BUY' else "VTTC0801U") if self.account_type == 'SIM' else ("TTTC0802U" if order_type.upper() == 'BUY' else "TTTC0801U")
         clean_account_no = self.account_no.replace('-', '')
         cano, acnt_prdt_cd = clean_account_no[:8], clean_account_no[8:]
         body = {"CANO": cano, "ACNT_PRDT_CD": acnt_prdt_cd, "PDNO": symbol, "ORD_DVSN": order_division, "ORD_QTY": str(quantity), "ORD_UNPR": str(price)}
-        return self._send_request(method='POST', path=path, body=body, tr_id=tr_id)
+
+        api_response = self._send_request(method='POST', path=path, body=body, tr_id=tr_id)
+
+        # 5. Update the log based on the API response
+        if api_response and api_response.is_ok():
+            response_body = api_response.get_body()
+            order_id = response_body.get('output', {}).get('ODNO', 'N/A_SUCCESS')
+            pending_log.order_id = order_id
+            pending_log.log_message = "Order successfully sent to broker. Awaiting execution confirmation."
+            # The status remains PENDING until the websocket confirms execution.
+            pending_log.save()
+            logger.info(f"Order for {symbol} sent successfully. Order ID: {order_id}")
+        else:
+            error_msg = api_response.get_error_message() if api_response else "No response from API."
+            pending_log.status = 'FAILED'
+            pending_log.log_message = f"Broker API rejected the order. Reason: {error_msg}"
+            pending_log.save()
+            logger.error(f"Failed to place order for {symbol}. Reason: {error_msg}")
+
+        return api_response.get_body() if api_response else {'rt_cd': '99', 'msg1': 'API request failed.'}
 
     def get_daily_price_history(self, symbol, days=100):
         path = "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"

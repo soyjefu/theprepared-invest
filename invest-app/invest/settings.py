@@ -122,4 +122,19 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'trading.tasks.monitor_open_positions_task',
         'schedule': crontab(hour='9-15', minute='*', day_of_week='1-5'),
     },
-}   
+}
+
+# --- Test Settings ---
+# Use an in-memory SQLite database for tests to avoid external dependencies
+import sys
+if 'test' in sys.argv:
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': ':memory:'
+    }
+    # Use an in-memory channel layer for tests
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer"
+        }
+    }

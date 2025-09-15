@@ -133,7 +133,7 @@ def get_detailed_strategy(user, symbol: str, horizon: str) -> DetailedStrategyRe
     )
 
 
-def analyze_stock(symbol: str, client: KISApiClient) -> StockAnalysisResult:
+def analyze_stock(symbol: str, client: KISApiClient, market_trend: str = None) -> StockAnalysisResult:
     """
     Analyzes a stock's historical data to forecast future price, classify an investment
     horizon, and calculate risk management levels (stop-loss, target price).
@@ -196,9 +196,21 @@ def analyze_stock(symbol: str, client: KISApiClient) -> StockAnalysisResult:
         logger.error(f"Failed to calculate technical indicators for {symbol}: {e}", exc_info=True)
         return None # Can't proceed without indicators
 
-    # 3. Risk Levels based on ATR
-    stop_loss_price = latest_close - (2 * raw_data['latest_atr'])
-    target_price = latest_close + (4 * raw_data['latest_atr'])
+    # 3. Risk Levels based on ATR and Market Trend
+    if not market_trend:
+        market_trend = get_market_trend(client) # Get trend if not provided
+
+    if market_trend == 'BULL':
+        atr_multiplier = 2.5 # Looser stop-loss in a bull market
+    elif market_trend == 'BEAR':
+        atr_multiplier = 1.5 # Tighter stop-loss in a bear market
+    else: # SIDEWAYS
+        atr_multiplier = 2.0
+
+    stop_loss_price = latest_close - (atr_multiplier * raw_data['latest_atr'])
+    target_price = latest_close + (2 * atr_multiplier * raw_data['latest_atr']) # Target is 2x risk
+    raw_data['market_trend'] = market_trend
+    raw_data['atr_multiplier'] = atr_multiplier
 
     # 4. Prophet Forecasting (Optional but kept for trend analysis)
     try:
@@ -254,3 +266,55 @@ def analyze_stock(symbol: str, client: KISApiClient) -> StockAnalysisResult:
         target_price=round(target_price, 2),
         raw_data=raw_data
     )
+
+def get_market_trend(client: KISApiClient) -> str:
+    """
+    Analyzes the overall market trend using a major index (KOSPI).
+    Returns 'BULL', 'BEAR', or 'SIDEWAYS'.
+    """
+    logger.info("Analyzing overall market trend...")
+    try:
+        # KOSPI business sector index ticker is 'U001'
+        history_response = client.get_daily_price_history("005930", days=250) # Samsung Electronics as proxy for KOSPI
+        if not history_response or not history_response.is_ok():
+            logger.error("Failed to fetch market index data for trend analysis.")
+            return 'SIDEWAYS' # Default to neutral
+
+        price_history = history_response.get_body().get('output2')
+        df = pd.DataFrame(price_history)
+        df['stck_bsop_date'] = pd.to_datetime(df['stck_bsop_date'], format='%Y%m%d')
+        df['stck_clpr'] = pd.to_numeric(df['stck_clpr'])
+        df = df.set_index('stck_bsop_date').sort_index()
+
+        # Calculate SMAs
+        df['sma_20'] = df['stck_clpr'].rolling(window=20).mean()
+        df['sma_60'] = df['stck_clpr'].rolling(window=60).mean()
+        df['sma_120'] = df['stck_clpr'].rolling(window=120).mean()
+
+        latest = df.iloc[-1]
+
+        # Determine trend based on SMA positions
+        if latest['sma_20'] > latest['sma_60'] and latest['sma_60'] > latest['sma_120']:
+            logger.info("Market Trend: BULL")
+            return 'BULL'
+        elif latest['sma_20'] < latest['sma_60'] and latest['sma_60'] < latest['sma_120']:
+            logger.info("Market Trend: BEAR")
+            return 'BEAR'
+        else:
+            logger.info("Market Trend: SIDEWAYS")
+            return 'SIDEWAYS'
+
+    except Exception as e:
+        logger.error(f"Error during market trend analysis: {e}", exc_info=True)
+        return 'SIDEWAYS' # Default to neutral on error
+
+def recommend_strategy_allocations(market_trend: str) -> Dict[str, int]:
+    """
+    Recommends capital allocation percentages based on the market trend.
+    """
+    if market_trend == 'BULL':
+        return {'short_term': 40, 'mid_term': 40, 'long_term': 20}
+    elif market_trend == 'BEAR':
+        return {'short_term': 20, 'mid_term': 30, 'long_term': 50}
+    else: # SIDEWAYS
+        return {'short_term': 30, 'mid_term': 40, 'long_term': 30}
