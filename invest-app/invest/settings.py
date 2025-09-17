@@ -125,6 +125,11 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # --- Test Settings ---
+# --- Login Redirect Settings ---
+# Redirect users to the admin login page if they are not authenticated
+LOGIN_URL = '/admin/login/'
+
+# --- Test Settings ---
 # Use an in-memory SQLite database for tests to avoid external dependencies
 import sys
 if 'test' in sys.argv:
