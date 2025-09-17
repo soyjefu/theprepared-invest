@@ -4,7 +4,7 @@ from django.contrib import messages
 from .models import StrategySettings, Portfolio, TradeLog, AnalyzedStock, TradingAccount
 from django_celery_beat.models import PeriodicTask, CrontabSchedule
 from .kis_client import KISApiClient
-from .tasks import analyze_stocks_task
+from .tasks import analyze_stocks_task, run_daily_morning_routine
 from decimal import Decimal
 import logging
 import json
@@ -132,13 +132,32 @@ def system_management(request):
 # --- Utility & API Views (kept from original) ---
 
 @login_required
+@require_POST
+def trigger_stock_screening(request):
+    """
+    Triggers the Celery task to run the initial stock screening.
+    """
+    run_daily_morning_routine.delay()
+    messages.success(request, "1단계 종목 스크리닝 작업이 시작되었습니다.")
+    return redirect('trading:system_management')
+
+def get_screening_status(request):
+    """
+    Gets the status of the running screening task from the cache.
+    """
+    progress_data = cache.get('screening_progress')
+    if progress_data:
+        return JsonResponse(progress_data)
+    return JsonResponse({'status': 'idle', 'progress': 0})
+
+@login_required
+@require_POST
 def trigger_stock_analysis(request):
     """
     Triggers the Celery task to run the stock analysis.
     """
-    if request.method == 'POST':
-        analyze_stocks_task.delay()
-        messages.success(request, "수동 주식 분석 작업이 시작되었습니다. 잠시 후 결과가 반영됩니다.")
+    analyze_stocks_task.delay()
+    messages.success(request, "2단계 AI 분석 작업이 시작되었습니다. 잠시 후 결과가 반영됩니다.")
     return redirect('trading:system_management') # Redirect back to the management page
 
 def get_analysis_status(request):

@@ -16,7 +16,13 @@ def run_daily_morning_routine():
     AnalyzedStock 모델에 저장합니다.
     """
     logger.info("Celery Task: Starting initial stock screening.")
-    screen_initial_stocks()
+    cache.set('screening_progress', {'status': '스크리닝 시작 중...', 'progress': 0}, timeout=300)
+    try:
+        screen_initial_stocks()
+        cache.set('screening_progress', {'status': '스크리닝 완료', 'progress': 100}, timeout=60)
+    except Exception as e:
+        logger.error(f"An error occurred during stock screening: {e}", exc_info=True)
+        cache.set('screening_progress', {'status': f'오류: {e}', 'progress': -1}, timeout=300)
     logger.info("Celery Task: Initial stock screening finished.")
 
 

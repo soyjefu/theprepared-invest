@@ -48,22 +48,28 @@ input:checked + .slider:before { transform: translateX(26px); }
     </div>
 
     <div class="card">
-        <h2>투자 전략 및 수동 분석</h2>
-        {% if settings %}
-            <p>
-                <strong>단기:</strong> {{ settings.short_term_allocation }}% |
-                <strong>중기:</strong> {{ settings.mid_term_allocation }}% |
-                <strong>장기:</strong> {{ settings.long_term_allocation }}%
-            </p>
-        {% else %}
-            <p>전략 설정이 필요합니다.</p>
-        {% endif %}
-        <form action="{% url 'trading:run_analysis' %}" method="post" style="margin-top: 1em;">
-            {% csrf_token %}
-            <button type="submit">수동으로 종목 분석 실행</button>
-        </form>
+        <h2>수동 작업 실행</h2>
+        <div style="display: flex; gap: 1rem; margin-top: 1em;">
+            <form action="{% url 'trading:run_screening' %}" method="post" id="screening-form">
+                {% csrf_token %}
+                <button type="submit">1단계: 종목 스크리닝 실행</button>
+            </form>
+            <form action="{% url 'trading:run_analysis' %}" method="post" id="analysis-form">
+                {% csrf_token %}
+                <button type="submit">2단계: AI 분석 실행</button>
+            </form>
+        </div>
+
+        <div id="screening-progress-section" class="progress-section" style="margin-top: 1em;">
+            <h4>1단계: 스크리닝 진행률</h4>
+            <div class="progress-bar-container">
+                <div id="screening-progress-bar" class="progress-bar"></div>
+            </div>
+            <span id="screening-status-text" style="font-size: 0.9em; margin-top: 0.5em; display: block;"></span>
+        </div>
+
         <div id="analysis-progress-section" class="progress-section" style="margin-top: 1em;">
-            <h4>분석 진행률</h4>
+            <h4>2단계: AI 분석 진행률</h4>
             <div class="progress-bar-container">
                 <div id="analysis-progress-bar" class="progress-bar"></div>
             </div>
@@ -129,69 +135,109 @@ input:checked + .slider:before { transform: translateX(26px); }
 
 {% block extra_scripts %}
 <script>
-// This script is copied from the original dashboard.html
 document.addEventListener('DOMContentLoaded', function() {
-    const analysisForm = document.querySelector('form[action="{% url 'trading:run_analysis' %}"]');
-    const progressSection = document.getElementById('analysis-progress-section');
-    const progressBar = document.getElementById('analysis-progress-bar');
-    const statusText = document.getElementById('analysis-status-text');
-    let pollingInterval;
+    // --- Task Progress Monitoring ---
+    class TaskMonitor {
+        constructor(config) {
+            this.config = config;
+            this.form = document.getElementById(config.formId);
+            this.progressSection = document.getElementById(config.progressSectionId);
+            this.progressBar = document.getElementById(config.progressBarId);
+            this.statusText = document.getElementById(config.statusTextId);
+            this.pollingInterval = null;
 
-    function checkStatus() {
-        fetch("{% url 'trading:get_analysis_status' %}")
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'idle' && pollingInterval) {
-                    clearInterval(pollingInterval);
-                    pollingInterval = null;
-                    progressSection.style.display = 'none';
-                    return;
-                }
+            this.init();
+        }
 
-                if (data.status !== 'idle') {
-                    progressSection.style.display = 'block';
-                    const progress = data.progress < 0 ? 100 : data.progress; // Show full bar on error
-                    progressBar.style.width = progress + '%';
-                    statusText.textContent = data.status;
-
-                    if (data.progress < 0) { // Error case
-                        progressBar.style.backgroundColor = '#c0392b';
-                        clearInterval(pollingInterval);
-                        pollingInterval = null;
-                    } else if (data.progress >= 100) { // Completion case
-                        progressBar.style.backgroundColor = '#27ae60'; // Green
-                        setTimeout(() => {
-                            progressSection.style.display = 'none';
-                            progressBar.style.backgroundColor = '#3498db'; // Reset color
-                        }, 5000); // Hide after 5 seconds
-                        clearInterval(pollingInterval);
-                        pollingInterval = null;
+        init() {
+            if (this.form) {
+                this.form.addEventListener('submit', (e) => {
+                    // Prevent multiple submissions if already running
+                    if (this.pollingInterval) {
+                        e.preventDefault();
+                        return;
                     }
-                }
-            })
-            .catch(error => {
-                console.error('Error fetching analysis status:', error);
-                if(pollingInterval) {
-                    clearInterval(pollingInterval);
-                    pollingInterval = null;
-                }
-            });
-    }
-
-    if (analysisForm) {
-        analysisForm.addEventListener('submit', function() {
-            progressSection.style.display = 'block';
-            progressBar.style.width = '0%';
-            statusText.textContent = '분석 작업을 시작합니다...';
-
-            if (!pollingInterval) {
-                pollingInterval = setInterval(checkStatus, 2000);
+                    this.start();
+                });
             }
-        });
+            this.checkStatus(); // Initial check on page load
+        }
+
+        start() {
+            this.progressSection.style.display = 'block';
+            this.progressBar.style.width = '0%';
+            this.progressBar.style.backgroundColor = '#3498db'; // Reset color
+            this.statusText.textContent = this.config.startMessage;
+            if (!this.pollingInterval) {
+                this.pollingInterval = setInterval(() => this.checkStatus(), 2000);
+            }
+        }
+
+        stop() {
+            if (this.pollingInterval) {
+                clearInterval(this.pollingInterval);
+                this.pollingInterval = null;
+            }
+        }
+
+        update(data) {
+            if (data.status === 'idle' && this.pollingInterval) {
+                this.stop();
+                this.progressSection.style.display = 'none';
+                return;
+            }
+
+            if (data.status !== 'idle') {
+                this.progressSection.style.display = 'block';
+                const progress = data.progress < 0 ? 100 : data.progress; // Show full bar on error
+                this.progressBar.style.width = progress + '%';
+                this.statusText.textContent = data.status;
+
+                if (data.progress < 0) { // Error
+                    this.progressBar.style.backgroundColor = '#c0392b';
+                    this.stop();
+                } else if (data.progress >= 100) { // Complete
+                    this.progressBar.style.backgroundColor = '#27ae60';
+                    this.stop();
+                    setTimeout(() => {
+                        this.progressSection.style.display = 'none';
+                        this.progressBar.style.backgroundColor = '#3498db';
+                    }, 5000);
+                }
+            }
+        }
+
+        checkStatus() {
+            fetch(this.config.statusUrl)
+                .then(response => response.json())
+                .then(data => this.update(data))
+                .catch(error => {
+                    console.error(`Error fetching status for ${this.config.formId}:`, error);
+                    this.stop();
+                });
+        }
     }
 
-    checkStatus();
+    new TaskMonitor({
+        formId: 'screening-form',
+        progressSectionId: 'screening-progress-section',
+        progressBarId: 'screening-progress-bar',
+        statusTextId: 'screening-status-text',
+        statusUrl: "{% url 'trading:get_screening_status' %}",
+        startMessage: '1단계 스크리닝 작업을 시작합니다...'
+    });
 
+    new TaskMonitor({
+        formId: 'analysis-form',
+        progressSectionId: 'analysis-progress-section',
+        progressBarId: 'analysis-progress-bar',
+        statusTextId: 'analysis-status-text',
+        statusUrl: "{% url 'trading:get_analysis_status' %}",
+        startMessage: '2단계 AI 분석 작업을 시작합니다...'
+    });
+
+
+    // --- Periodic Task Management ---
     document.querySelectorAll('tr[data-task-id]').forEach(row => {
         const taskId = row.dataset.taskId;
         const editBtn = row.querySelector('.edit-btn');

@@ -1,6 +1,7 @@
 # invest-app/trading/analysis/market_scanner.py
 
 import logging
+from django.core.cache import cache
 from trading.models import AnalyzedStock, TradingAccount
 from trading.kis_client import KISApiClient
 
@@ -60,7 +61,13 @@ def screen_initial_stocks():
     AnalyzedStock.objects.all().update(is_investable=False)
     
     screened_count = 0
-    for symbol in target_symbols:
+    total_symbols = len(target_symbols)
+    for i, symbol in enumerate(target_symbols):
+        # Update progress
+        progress = int(((i + 1) / total_symbols) * 95)  # Go up to 95%
+        status_text = f"종목 필터링 중: {symbol} ({i + 1}/{total_symbols})"
+        cache.set('screening_progress', {'status': status_text, 'progress': progress}, timeout=300)
+
         # 현재가 조회를 통해 종목명 가져오기 및 기본 필터링
         price_info = client.get_current_price(symbol)
         if not (price_info and price_info.get('rt_cd') == '0'):

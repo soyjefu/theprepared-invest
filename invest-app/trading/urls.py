@@ -14,6 +14,8 @@ urlpatterns = [
     path('system/', views.system_management, name='system_management'),
 
     # Utility URLs
+    path('screening/run/', views.trigger_stock_screening, name='run_screening'),
+    path('screening/status/', views.get_screening_status, name='get_screening_status'),
     path('analysis/run/', views.trigger_stock_analysis, name='run_analysis'),
     path('analysis/status/', views.get_analysis_status, name='get_analysis_status'),
 
