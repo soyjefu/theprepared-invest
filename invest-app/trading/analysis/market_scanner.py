@@ -69,22 +69,24 @@ def screen_initial_stocks():
         cache.set('screening_progress', {'status': status_text, 'progress': progress}, timeout=300)
 
         # 현재가 조회를 통해 종목명 가져오기 및 기본 필터링
-        price_info = client.get_current_price(symbol)
-        if not (price_info and price_info.get('rt_cd') == '0'):
-            logger.warning(f"[{symbol}] 현재가 정보를 가져오지 못해 필터링에서 제외합니다.")
+        price_info_response = client.get_current_price(symbol)
+        if not (price_info_response and price_info_response.is_ok()):
+            logger.warning(f"[{symbol}] 현재가 정보를 가져오지 못해 필터링에서 제외합니다. "
+                           f"Error: {price_info_response.get_error_message() if price_info_response else 'No response'}")
             continue
-            
+
+        price_info = price_info_response.get_body()
         stock_name = price_info.get('output', {}).get('hts_kor_isnm', '')
-        
+
         is_investable = True
         reason = ""
-        
-        if stock_name.endswith('우') or any(keyword in stock_name for keyword in ['스팩', 'ETN', 'TIGER', 'KODEX']):
+
+        if not stock_name or stock_name.endswith('우') or any(keyword in stock_name for keyword in ['스팩', 'ETN', 'TIGER', 'KODEX']):
             is_investable = False
-            reason = "우선주/스팩/ETF"
-        
+            reason = "정보 없음/우선주/스팩/ETF"
+
         # TODO: 향후 API를 통해 관리종목 여부 등을 직접 확인하는 로직으로 고도화
-        
+
         obj, created = AnalyzedStock.objects.update_or_create(
             symbol=symbol,
             defaults={

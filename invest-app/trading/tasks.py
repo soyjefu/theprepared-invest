@@ -213,11 +213,13 @@ def monitor_open_positions_task():
 
     for pos in open_positions:
         # Get current price
-        price_info = client.get_current_price(pos.symbol)
-        if not (price_info and price_info.get('rt_cd') == '0'):
-            logger.warning(f"Could not fetch current price for {pos.symbol}. Skipping.")
+        price_info_response = client.get_current_price(pos.symbol)
+        if not (price_info_response and price_info_response.is_ok()):
+            logger.warning(f"Could not fetch current price for {pos.symbol}. Skipping. "
+                           f"Error: {price_info_response.get_error_message() if price_info_response else 'No response'}")
             continue
 
+        price_info = price_info_response.get_body()
         current_price = Decimal(price_info.get('output', {}).get('stck_prpr', '0'))
 
         if current_price <= 0:
