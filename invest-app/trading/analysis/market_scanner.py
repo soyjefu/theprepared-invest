@@ -1,6 +1,7 @@
 # invest-app/trading/analysis/market_scanner.py
 
 import logging
+import numpy as np
 from django.core.cache import cache
 from trading.models import AnalyzedStock, TradingAccount
 from trading.kis_client import KISApiClient
@@ -8,6 +9,27 @@ from .stock_lists import get_market_tickers
 from ..ai_analysis_service import analyze_stock, get_market_trend
 
 logger = logging.getLogger(__name__)
+
+
+def convert_numpy_types(obj):
+    """
+    Recursively converts numpy types in a dictionary or list to native Python types.
+    """
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(i) for i in obj]
+    elif isinstance(obj, (np.integer, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif obj is None:
+        return None
+    else:
+        return obj
+
 
 def screen_initial_stocks():
     """
@@ -93,6 +115,9 @@ def screen_initial_stocks():
         else:
             logger.info(f"[{symbol}] {stock_name}: 투자 부적격. ({reason})")
 
+        # DB에 저장하기 전, numpy 타입을 표준 파이썬 타입으로 변환
+        cleaned_raw_data = convert_numpy_types(analysis_result.raw_data)
+
         # DB에 분석 결과 저장/업데이트
         AnalyzedStock.objects.update_or_create(
             symbol=symbol,
@@ -101,7 +126,7 @@ def screen_initial_stocks():
                 'is_investable': is_investable,
                 'investment_horizon': analysis_result.horizon, # 투자 기간 결과 저장
                 'last_price': last_price,
-                'raw_analysis_data': analysis_result.raw_data
+                'raw_analysis_data': cleaned_raw_data
             }
         )
 
