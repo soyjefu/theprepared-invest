@@ -18,6 +18,7 @@ services:
     env_file:
       - ./.env # 수정: env_file 경로 단일화
     environment:
+      MPLCONFIGDIR: /tmp/matplotlib
       POSTGRES_HOST: postgres_db
       POSTGRES_DB: ${POSTGRES_DB_I}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -41,6 +42,7 @@ services:
     env_file:
       - ./.env
     environment:
+      MPLCONFIGDIR: /tmp/matplotlib
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
     networks:
@@ -59,6 +61,7 @@ services:
     env_file:
       - ./.env
     environment:
+      MPLCONFIGDIR: /tmp/matplotlib
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
     networks:

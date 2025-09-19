@@ -1,3 +1,4 @@
+from decimal import Decimal
 from rest_framework import serializers
 from .models import Portfolio
 
@@ -26,7 +27,7 @@ class LiquidateSerializer(serializers.Serializer):
     target_cash_percentage = serializers.DecimalField(
         max_digits=5,
         decimal_places=2,
-        min_value=0.0,
-        max_value=100.0,
+        min_value=Decimal('0.0'),
+        max_value=Decimal('100.0'),
         help_text="The desired percentage of total assets to be held in cash."
     )

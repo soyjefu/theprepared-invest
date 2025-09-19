@@ -9,10 +9,20 @@ https://docs.djangoproject.com/en/5.0/howto/deployment/asgi/
 """
 
 import os
-
 from django.core.asgi import get_asgi_application
+from channels.routing import ProtocolTypeRouter, URLRouter
+from channels.auth import AuthMiddlewareStack
+import trading.routing
 
-# 수정: 'autotrader.settings' -> 'invest.settings'로 변경
-os.environ.setdefault('DJANGO_SETTINGS_MODULE_I', 'invest.settings')
+# 올바른 환경 변수 키 사용
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'invest.settings')
 
-application = get_asgi_application()
+# HTTP와 WebSocket 프로토콜을 분기
+application = ProtocolTypeRouter({
+    "http": get_asgi_application(),
+    "websocket": AuthMiddlewareStack(
+        URLRouter(
+            trading.routing.websocket_urlpatterns
+        )
+    ),
+})

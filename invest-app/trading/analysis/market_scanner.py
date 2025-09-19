@@ -51,7 +51,8 @@ def screen_initial_stocks():
 
     logger.info(f"총 {len(target_symbols)}개 종목을 대상으로 AI 기반 필터링을 시작합니다.")
 
-    AnalyzedStock.objects.all().update(is_investable=False, analysis_data=None)
+    # 분석 시작 전, 이전 데이터 초기화 (is_investable 플래그를 False로, 분석 데이터는 빈 JSON으로)
+    AnalyzedStock.objects.all().update(is_investable=False, raw_analysis_data={})
 
     screened_count = 0
     total_symbols = len(target_symbols)
@@ -98,8 +99,9 @@ def screen_initial_stocks():
             defaults={
                 'stock_name': stock_name,
                 'is_investable': is_investable,
+                'investment_horizon': analysis_result.horizon, # 투자 기간 결과 저장
                 'last_price': last_price,
-                'analysis_data': analysis_result.raw_data
+                'raw_analysis_data': analysis_result.raw_data
             }
         )
 

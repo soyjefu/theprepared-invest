@@ -28,6 +28,7 @@ pandas
 yfinance
 prophet
 pandas-ta
+plotly
 
 # Utilities
 django-encrypted-model-fields
