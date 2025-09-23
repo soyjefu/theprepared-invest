@@ -17,6 +17,7 @@ djangorestframework
 requests
 
 # Async, Celery & Websockets
+uvicorn
 celery
 django-celery-beat
 channels
