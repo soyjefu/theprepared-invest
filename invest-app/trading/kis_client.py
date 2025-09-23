@@ -51,6 +51,7 @@ class KISAPIResponse:
 
 class KISApiClient:
     def __init__(self, app_key, app_secret, account_no, account_type='SIM'):
+        logger.info(f"KISApiClient instantiated for account {account_no} (type: {account_type})")
         self.app_key = app_key
         self.app_secret = app_secret
         self.account_no = account_no
@@ -69,23 +70,29 @@ class KISApiClient:
         try:
             response = requests.post(url, headers=headers, data=json.dumps(body))
             response.raise_for_status()
-            result = response.json()
+            try:
+                result = response.json()
+            except json.JSONDecodeError as e:
+                logger.error(f"🚨 토큰 발급 실패 (JSONDecodeError): {e}")
+                logger.error(f"응답 내용 (status {response.status_code}): {response.text}")
+                return None
+
             token = f"Bearer {result['access_token']}"
-            expires_in = int(result['expires_in'])
+            expires_in = int(result.get('expires_in', 86400))
             cache.set(self.cache_key, token, timeout=expires_in - 300)
-            print(f"✅ 새로운 토큰이 발급되어 캐시에 저장되었습니다. (유효시간: 약 {expires_in // 3600}시간)")
+            logger.info(f"✅ 새로운 토큰이 발급되어 캐시에 저장되었습니다. (유효시간: 약 {expires_in // 3600}시간)")
             return token
         except requests.exceptions.RequestException as e:
-            print(f"🚨 토큰 발급 실패: {e}")
+            logger.error(f"🚨 토큰 발급 실패 (RequestException): {e}")
             response_text = response.text if 'response' in locals() else "응답 없음"
-            print(f"응답 내용: {response_text}")
+            logger.error(f"응답 내용: {response_text}")
             return None
 
     def get_access_token(self):
         cached_token = cache.get(self.cache_key)
         if cached_token:
             return cached_token
-        print("캐시에 토큰이 없거나 만료되어 새로 발급합니다.")
+        logger.info("캐시에 토큰이 없거나 만료되어 새로 발급합니다.")
         return self._issue_token()
 
     def _send_request(self, method, path, params=None, body=None, tr_id=None, retries=3, delay=5):
