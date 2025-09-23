@@ -13,12 +13,14 @@ import django
 from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
-import trading.routing
 
 # 올바른 환경 변수 키 사용
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'invest.settings')
 # Explicitly setup Django to avoid AppRegistryNotReady error.
 django.setup()
+
+# Import routing after django setup
+import trading.routing
 
 # HTTP와 WebSocket 프로토콜을 분기
 application = ProtocolTypeRouter({
