@@ -34,7 +34,7 @@ services:
       context: ./invest-app
     container_name: invest_app
     restart: unless-stopped
-    command: sh -c "./wait-for-postgres.sh invest_db && python manage.py migrate && python manage.py create_test_user && gunicorn invest.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000"
+    command: sh -c "./wait-for-postgres.sh invest_db && python manage.py create_test_user && gunicorn invest.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000"
     ports:
       - "8000:8000"
     volumes:
