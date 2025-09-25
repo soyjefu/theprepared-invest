@@ -375,6 +375,91 @@ class KISApiClient:
         params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol, "FID_INPUT_DATE_1": start_date, "FID_INPUT_DATE_2": end_date, "FID_PERIOD_DIV_CODE": "D", "FID_ORG_ADJ_PRC": "1"}
         return self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
 
+    def get_financial_info(self, symbol, year_gb='0'):
+        """
+        Fetches financial ratio data for a given stock symbol.
+        (국내주식 재무비율)
+
+        Args:
+            symbol (str): The stock symbol (ticker).
+            year_gb (str): '0' for yearly data, '1' for quarterly data.
+
+        Returns:
+            KISAPIResponse | None: The API response object.
+        """
+        path = "/uapi/domestic-stock/v1/finance/financial-ratio"
+        tr_id = "FHKST66430300"
+        params = {
+            "fid_cond_mrkt_div_code": "J",
+            "fid_input_iscd": symbol,
+            "fid_div_cls_code": year_gb
+        }
+        return self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
+
+    def get_stock_info(self, symbol):
+        """
+        Fetches basic information for a given stock symbol, including industry.
+        (주식기본정보조회)
+
+        Args:
+            symbol (str): The stock symbol (ticker).
+
+        Returns:
+            KISAPIResponse | None: The API response object.
+        """
+        path = "/uapi/domestic-stock/v1/quotations/search-stock-info"
+        tr_id = "CTPF1002R"
+        params = {
+            "PRDT_TYPE_CD": "300",  # 300 for stocks
+            "PDNO": symbol
+        }
+        return self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
+
+    def get_intraday_investor_summary(self, market_code='0000', amount_gb='1', buy_sell_gb='0', investor_gb='2'):
+        """
+        Fetches intraday provisional net buy/sell data for investors.
+        (국내기관/외국인 매매종목 가집계)
+
+        Args:
+            market_code (str): Market code. '0000' for all, '0001' for KOSPI, '1001' for KOSDAQ.
+            amount_gb (str): '0' for quantity, '1' for amount.
+            buy_sell_gb (str): '0' for net buy, '1' for net sell.
+            investor_gb (str): '0' for all, '1' for foreigner, '2' for institution, '3' for others.
+
+        Returns:
+            KISAPIResponse | None: The API response object.
+        """
+        path = "/uapi/domestic-stock/v1/quotations/foreign-institution-total"
+        tr_id = "FHPTJ04400000"
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "V",
+            "FID_COND_SCR_DIV_CODE": "16449",
+            "FID_INPUT_ISCD": market_code,
+            "FID_DIV_CLS_CODE": amount_gb,
+            "FID_RANK_SORT_CLS_CODE": buy_sell_gb,
+            "FID_ETC_CLS_CODE": investor_gb
+        }
+        return self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
+
+    def get_index_price_history(self, symbol, days=100):
+        """
+        Fetches the daily price chart history for a given index.
+        (국내주식업종기간별시세)
+
+        Args:
+            symbol (str): The index symbol (e.g., '0001' for KOSPI).
+            days (int, optional): The number of days of history to retrieve.
+
+        Returns:
+            KISAPIResponse | None: The API response object containing historical data.
+        """
+        path = "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
+        tr_id = "FHKUP03500100"
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+        params = {"FID_COND_MRKT_DIV_CODE": "U", "FID_INPUT_ISCD": symbol, "FID_INPUT_DATE_1": start_date, "FID_INPUT_DATE_2": end_date, "FID_PERIOD_DIV_CODE": "D"}
+        return self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
+
     def is_market_open(self):
         """
         Checks if the Korean stock market is currently open.
