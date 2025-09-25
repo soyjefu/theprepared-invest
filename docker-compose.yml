@@ -20,7 +20,7 @@ services:
     networks:
       - internal
     ports:
-      - "5433:5433"
+      - "5433:5432"
 
   invest_redis:
     image: "redis:alpine"
@@ -67,6 +67,10 @@ services:
     env_file:
       - ./.env
     environment:
+      POSTGRES_HOST: invest_db
+      POSTGRES_DB: ${POSTGRES_DB_I}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       MPLCONFIGDIR: /tmp/matplotlib
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
@@ -86,6 +90,10 @@ services:
     env_file:
       - ./.env
     environment:
+      POSTGRES_HOST: invest_db
+      POSTGRES_DB: ${POSTGRES_DB_I}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       MPLCONFIGDIR: /tmp/matplotlib
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY_I}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE_I}
