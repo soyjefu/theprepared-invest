@@ -169,3 +169,26 @@ class StrategySettings(models.Model):
     class Meta:
         verbose_name = "AI Strategy Settings"
         verbose_name_plural = "AI Strategy Settings"
+
+
+class HistoricalPriceData(models.Model):
+    """
+    Stores historical daily price data for each stock.
+    Used for backtesting and technical analysis calculations.
+    """
+    symbol = models.CharField(max_length=20, db_index=True, help_text="The stock symbol (ticker).")
+    date = models.DateField(db_index=True, help_text="The date of the price data.")
+    open_price = models.DecimalField(max_digits=15, decimal_places=2, help_text="Opening price.")
+    high_price = models.DecimalField(max_digits=15, decimal_places=2, help_text="Highest price of the day.")
+    low_price = models.DecimalField(max_digits=15, decimal_places=2, help_text="Lowest price of the day.")
+    close_price = models.DecimalField(max_digits=15, decimal_places=2, help_text="Closing price.")
+    volume = models.BigIntegerField(help_text="Trading volume for the day.")
+
+    class Meta:
+        unique_together = ('symbol', 'date')
+        ordering = ['-date']
+        verbose_name = "Historical Price Data"
+        verbose_name_plural = "Historical Price Data"
+
+    def __str__(self):
+        return f"{self.symbol} on {self.date}: {self.close_price}"
