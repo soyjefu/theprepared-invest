@@ -12,8 +12,33 @@ from django.http import JsonResponse, HttpResponseRedirect
 from django.views.decorators.http import require_POST
 from django.core.cache import cache
 from django.urls import reverse
+from .forms import StrategySettingsForm
 
 logger = logging.getLogger(__name__)
+
+@login_required
+def strategy_settings_view(request):
+    """
+    View to manage the singleton StrategySettings model.
+    """
+    settings = StrategySettings.get_solo()
+    if request.method == 'POST':
+        form = StrategySettingsForm(request.POST, instance=settings)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Strategy settings have been updated successfully.')
+            return redirect('trading:strategy_settings')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = StrategySettingsForm(instance=settings)
+
+    context = {
+        'form': form,
+        'page_title': 'Strategy Settings'
+    }
+    return render(request, 'trading/settings.html', context)
+
 
 def root_redirect(request):
     """
@@ -28,6 +53,8 @@ def root_redirect(request):
     return HttpResponseRedirect(reverse('trading:dashboard'))
 
 # --- Page Views ---
+
+from .trading_service import DailyTrader
 
 @login_required
 def dashboard(request):
@@ -52,6 +79,17 @@ def dashboard(request):
     all_accounts = TradingAccount.objects.filter(user=request.user, is_active=True)
     account_details = []
     grand_total_assets = Decimal('0.0')
+    market_mode = "Unknown" # Default
+
+    if all_accounts.exists():
+        # 첫 번째 계정 기준으로 시장 모드 판단 (어차피 시장은 하나이므로)
+        try:
+            # DailyTrader를 생성하되, 실제 거래는 하지 않으므로 user만 넘겨 초기화
+            trader = DailyTrader(user=request.user, account_number=all_accounts.first().account_number)
+            market_mode, _ = trader.get_market_mode()
+        except Exception as e:
+            logger.error(f"Failed to determine market mode for dashboard: {e}")
+            market_mode = "Error"
 
     for account in all_accounts:
         client = KISApiClient(
@@ -108,6 +146,7 @@ def dashboard(request):
 
     context['account_details'] = account_details
     context['grand_total_assets'] = grand_total_assets
+    context['market_mode'] = market_mode
     return render(request, 'trading/dashboard.html', context)
 
 @login_required

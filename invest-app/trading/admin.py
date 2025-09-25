@@ -44,7 +44,7 @@ class StrategySettingsAdmin(admin.ModelAdmin):
     """
     Admin interface customization for the singleton StrategySettings model.
     """
-    list_display = ('short_term_allocation', 'mid_term_allocation', 'long_term_allocation', 'updated_at')
+    list_display = ('risk_per_trade', 'max_total_risk', 'dca_base_amount', 'updated_at')
 
     def has_add_permission(self, request):
         """Prevents adding new settings if one already exists."""

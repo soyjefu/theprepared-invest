@@ -35,18 +35,20 @@ class StrategySettingsForm(forms.ModelForm):
     A form for updating the global StrategySettings.
     """
     class Meta:
-        """
-        Meta options for the StrategySettingsForm.
-        """
         model = StrategySettings
-        fields = ['short_term_allocation', 'mid_term_allocation', 'long_term_allocation']
-        labels = {
-            'short_term_allocation': 'Short-Term Allocation (%)',
-            'mid_term_allocation': 'Mid-Term Allocation (%)',
-            'long_term_allocation': 'Long-Term Allocation (%)',
-        }
+        fields = [
+            'trading_fee_rate', 'trading_tax_rate',
+            'risk_per_trade', 'max_total_risk',
+            'dca_base_amount', 'dca_settings_json'
+        ]
         widgets = {
-            'short_term_allocation': forms.NumberInput(attrs={'class': 'form-control'}),
-            'mid_term_allocation': forms.NumberInput(attrs={'class': 'form-control'}),
-            'long_term_allocation': forms.NumberInput(attrs={'class': 'form-control'}),
+            'trading_fee_rate': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.00001'}),
+            'trading_tax_rate': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.0001'}),
+            'risk_per_trade': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001'}),
+            'max_total_risk': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+            'dca_base_amount': forms.NumberInput(attrs={'class': 'form-control'}),
+            'dca_settings_json': forms.Textarea(attrs={'class': 'form-control', 'rows': 6}),
+        }
+        help_texts = {
+            'dca_settings_json': 'Must be in valid JSON format.'
         }

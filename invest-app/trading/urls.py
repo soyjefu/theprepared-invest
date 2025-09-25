@@ -12,6 +12,7 @@ urlpatterns = [
     path('dashboard/', views.dashboard, name='dashboard'),
     path('portfolio/', views.portfolio, name='portfolio'),
     path('orders/', views.orders, name='orders'),
+    path('settings/', views.strategy_settings_view, name='strategy_settings'),
     path('system/', views.system_management, name='system_management'),
 
     # Endpoints to trigger and monitor Celery tasks

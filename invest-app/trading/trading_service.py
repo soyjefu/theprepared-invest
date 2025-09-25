@@ -37,13 +37,14 @@ class DailyTrader:
                 account_type=self.account.get_account_type_display()
             )
 
-            # settings.py에서 전략 설정값 불러오기
-            self.fee_rate = settings.TRADING_FEE_RATE
-            self.tax_rate = settings.TRADING_TAX_RATE
-            self.risk_per_trade = settings.RISK_PER_TRADE
-            self.max_total_risk = settings.MAX_TOTAL_RISK
-            self.dca_base_amount = settings.DCA_BASE_AMOUNT
-            self.dca_settings = settings.DYNAMIC_DCA_SETTINGS
+            # DB에서 전략 설정값 불러오기
+            strategy_settings = StrategySettings.get_solo()
+            self.fee_rate = strategy_settings.trading_fee_rate
+            self.tax_rate = strategy_settings.trading_tax_rate
+            self.risk_per_trade = strategy_settings.risk_per_trade
+            self.max_total_risk = strategy_settings.max_total_risk
+            self.dca_base_amount = strategy_settings.dca_base_amount
+            self.dca_settings = strategy_settings.dca_settings_json
 
             logger.info(f"DailyTrader for account {self.account.account_number} initialized.")
 
