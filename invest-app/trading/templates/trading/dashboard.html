@@ -5,6 +5,9 @@
 
 {% block content %}
 <div class="card">
+    <div class="market-mode-summary" style="padding: 1em; margin-bottom: 1.5em; border: 1px solid #ddd; border-left-width: 5px; border-left-color: {% if '우량주' in market_mode %}#5bc0de;{% else %}#f0ad4e;{% endif %}">
+        <h4 style="margin: 0;">현재 시장 모드: <span style="font-weight: bold;">{{ market_mode }}</span></h4>
+    </div>
     <h2>계좌 종합 현황</h2>
     {% for detail in account_details %}
         <div class="account-summary" style="margin-bottom: 2em;">
