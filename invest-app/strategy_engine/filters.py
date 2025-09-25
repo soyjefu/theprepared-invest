@@ -166,7 +166,8 @@ def determine_market_mode(kospi_history: list):
 
     try:
         df = pd.DataFrame(kospi_history)
-        df['close'] = pd.to_numeric(df['stck_clpr'])
+        # KIS API에서 지수(업종) 차트의 종가는 'stck_clpr'가 아닌 'bstp_cls_prpr' 필드를 사용합니다.
+        df['close'] = pd.to_numeric(df['bstp_cls_prpr'])
 
         # 60일 이동평균 계산
         df['ma_60'] = df['close'].rolling(window=60).mean()
