@@ -2,158 +2,252 @@ import logging
 import pandas as pd
 from datetime import timedelta
 from decimal import Decimal
-from trading.models import HistoricalPriceData
-from .filters import is_financially_sound, is_blue_chip
-from .technical_analysis import calculate_atr, get_price_targets
+
+from django.conf import settings
+from trading.kis_client import KISApiClient
+from .models import HistoricalPrice
+from trading.trading_service import DailyTrader
 
 logger = logging.getLogger(__name__)
 
+class MockKISApiClient(KISApiClient):
+    """
+    백테스팅을 위한 KISApiClient의 모의(Mock) 버전.
+    실제 API를 호출하는 대신, DB에 저장된 과거 시세 데이터를 사용하고
+    가상의 계좌 잔고를 관리합니다.
+    """
+    def __init__(self, backtester):
+        self.backtester = backtester
+        # 실제 API 호출에 필요한 정보는 없으므로 None으로 설정
+        super().__init__(app_key=None, app_secret=None, account_no=None, account_type='SIM')
+
+    def get_account_balance(self):
+        # 가상 계좌의 잔고를 API 응답 형식으로 반환
+        output1 = []
+        for symbol, data in self.backtester.portfolio.items():
+            current_price = self.backtester.get_price(symbol, self.backtester.current_date)
+            output1.append({
+                'pdno': symbol,
+                'hldg_qty': str(data['quantity']),
+                'pchs_amt': str(data['quantity'] * data['buy_price']),
+                'evlu_amt': str(data['quantity'] * current_price),
+            })
+
+        output2 = [{
+            'dnca_tot_amt': str(self.backtester.cash),
+            'tot_evlu_amt': str(self.backtester.get_total_value()),
+        }]
+
+        # KISAPIResponse와 유사한 객체를 반환하도록 구조화
+        class MockResponse:
+            def is_ok(self): return True
+            def get_body(self): return {'output1': output1, 'output2': output2}
+            def get_error_message(self): return ""
+        return MockResponse()
+
+    def get_current_price(self, symbol):
+        price = self.backtester.get_price(symbol, self.backtester.current_date)
+        class MockResponse:
+            def is_ok(self): return price > 0
+            def get_body(self): return {'output': {'stck_prpr': str(price)}}
+            def get_error_message(self): return "Price not found" if price == 0 else ""
+        return MockResponse()
+
+    def get_index_price_history(self, symbol, days):
+        start = self.backtester.current_date - timedelta(days=days)
+        history = self.backtester.get_history(symbol, start, self.backtester.current_date)
+        class MockResponse:
+            def is_ok(self): return bool(history)
+            def get_body(self): return {'output2': history}
+            def get_error_message(self): return ""
+        return MockResponse()
+
+    def place_order(self, account, symbol, quantity, price, order_type, fee_rate=0.0):
+        if order_type == 'BUY':
+            self.backtester._execute_buy(symbol, quantity, Decimal(price), self.backtester.current_date)
+        elif order_type == 'SELL':
+            self.backtester._execute_sell(symbol, quantity, Decimal(price), self.backtester.current_date)
+
+        class MockResponse:
+            def is_ok(self): return True
+            def get_body(self): return {'rt_cd': '0'}
+        return MockResponse()
+
 class Backtester:
-    def __init__(self, start_date, end_date, initial_capital=100_000_000):
+    def __init__(self, user, start_date, end_date, initial_capital=100_000_000, strategy_params=None):
+        self.user = user
         self.start_date = start_date
         self.end_date = end_date
         self.initial_capital = Decimal(initial_capital)
+        self.strategy_params = strategy_params if strategy_params is not None else {}
+
         self.cash = self.initial_capital
-        self.portfolio = {}  # {symbol: {'quantity': int, 'buy_price': Decimal, 'group': str, 'targets': dict}}
+        self.portfolio = {}  # {symbol: {'quantity': int, 'buy_price': Decimal}}
         self.trade_log = []
         self.daily_portfolio_value = []
-        self.market_mode = '단기 트레이딩 모드'  # 초기 모드
-        self.cash_target_ratio = Decimal('0.3') # 초기 현금 비중 목표
+        self.current_date = start_date
+        self.all_history_data = self._load_all_data()
+
+    def _load_all_data(self):
+        logger.info("백테스팅에 필요한 모든 시세 데이터를 로딩합니다...")
+        qs = HistoricalPrice.objects.filter(date__gte=self.start_date, date__lte=self.end_date).order_by('date')
+        df = pd.DataFrame.from_records(qs.values())
+        if df.empty:
+            return df
+        df['date'] = pd.to_datetime(df['date'])
+        # 빠른 조회를 위해 multi-index 설정
+        df.set_index(['date', 'symbol'], inplace=True)
+        return df
+
+    def get_price(self, symbol, date):
+        try:
+            return self.all_history_data.loc[(pd.Timestamp(date), symbol), 'close_price']
+        except KeyError:
+            return 0
+
+    def get_history(self, symbol, start, end):
+        try:
+            df_slice = self.all_history_data.loc[(pd.Timestamp(start)):(pd.Timestamp(end)), :]
+            symbol_history = df_slice[df_slice.index.get_level_values('symbol') == symbol]
+            # API 응답 형식과 유사하게 변환
+            return [{'stck_bsop_date': d.strftime('%Y%m%d'), 'stck_clpr': str(p)} for d, p in symbol_history['close_price'].items()]
+        except KeyError:
+            return []
+
+    def get_total_value(self):
+        holdings_value = Decimal(0)
+        for symbol, position in self.portfolio.items():
+            price = self.get_price(symbol, self.current_date)
+            if price > 0:
+                holdings_value += position['quantity'] * price
+        return self.cash + holdings_value
 
     def run(self):
         logger.info(f"백테스팅 시작: {self.start_date} ~ {self.end_date}")
 
-        all_data = pd.DataFrame.from_records(
-            HistoricalPriceData.objects.filter(date__gte=self.start_date, date__lte=self.end_date).order_by('date').values()
-        )
-        if all_data.empty:
+        if self.all_history_data.empty:
             logger.error("백테스팅 기간에 해당하는 데이터가 없습니다.")
-            return
+            return None
 
-        all_data['date'] = pd.to_datetime(all_data['date']).dt.date
+        # DailyTrader를 생성하고 Mock Client 주입
+        trader = DailyTrader(user=self.user)
+        trader.client = MockKISApiClient(self)
 
-        current_date = self.start_date
-        while current_date <= self.end_date:
-            market_data_today = all_data[all_data['date'] == current_date]
-            if market_data_today.empty:
-                current_date += timedelta(days=1)
-                continue
+        # 사용자 정의 파라미터가 있으면 DailyTrader의 속성을 덮어쓰기
+        for param, value in self.strategy_params.items():
+            if hasattr(trader, param):
+                logger.info(f"Overriding DailyTrader parameter: {param} = {value}")
+                setattr(trader, param, Decimal(value)) # 파라미터를 Decimal로 변환
 
-            # 0. 마스터 스위치: 시장 모드 결정
-            kospi_history_to_date = all_data[(all_data['symbol'] == '0001') & (all_data['date'] <= current_date)]
-            self.market_mode = determine_market_mode(kospi_history_to_date.to_dict('records'))
-            if self.market_mode == '단기 트레이딩 모드':
-                self.cash_target_ratio = Decimal('0.3')
-            else: # 우량주 분할매수 모드
-                self.cash_target_ratio = Decimal('0.7')
-            logger.info(f"[{current_date}] 시장 모드: {self.market_mode}, 현금 목표: {self.cash_target_ratio:%}")
+        while self.current_date <= self.end_date:
+            # DailyTrader의 로직 실행
+            trader.run_daily_trading()
 
-            # 1. 포트폴리오 평가 및 매도 로직 실행
-            self._evaluate_and_sell(current_date, all_data)
+            # 일일 포트폴리오 가치 기록
+            self.daily_portfolio_value.append({
+                'date': self.current_date,
+                'value': self.get_total_value()
+            })
+            self.current_date += timedelta(days=1)
 
-            # 2. 투자 유니버스 선정 및 매수 로직 실행
-            if current_date.weekday() == 0: # 매주 월요일에만 유니버스 리밸런싱 및 매수 고려
-                # 백테스팅에서는 실제 재무 데이터를 매일 조회할 수 없으므로,
-                # 시가총액과 거래대금을 기준으로 '일반' 유니버스를 단순화하여 생성합니다.
-                market_caps = market_data_today.groupby('symbol')['close_price'].last() * market_data_today.groupby('symbol')['volume'].last()
-                top_200_symbols = market_caps.nlargest(200).index.tolist()
+        return self.generate_report()
 
-                # '중/장기' 종목은 더 엄격한 기준으로 필터링해야 하지만, 여기서는 예시로 일부를 선택합니다.
-                general_universe = top_200_symbols[10:]
-                blue_chip_universe = top_200_symbols[:10]
-
-                self._buy_stocks(current_date, all_data, general_universe, '일반')
-                self._buy_stocks(current_date, all_data, blue_chip_universe, '중/장기')
-
-            # 3. 일일 포트폴리오 가치 기록
-            self._record_daily_value(current_date, market_data_today)
-
-            current_date += timedelta(days=1)
-
-        self.generate_report()
-
-    def _evaluate_and_sell(self, current_date, all_data):
-        for symbol, position in list(self.portfolio.items()):
-            stock_data_today = all_data[(all_data['symbol'] == symbol) & (all_data['date'] == current_date)]
-            if stock_data_today.empty:
-                continue
-
-            current_price = stock_data_today.iloc[0]['close_price']
-
-            # ATR 및 손절가/목표가 재계산
-            history_to_date = all_data[(all_data['symbol'] == symbol) & (all_data['date'] <= current_date)]
-            if len(history_to_date) < 14: continue
-
-            atr = calculate_atr(history_to_date.to_dict('records'), period=14)
-            if atr <= 0: continue
-
-            price_targets = get_price_targets(atr, float(position['buy_price']), float(current_price), position['group'])
-
-            # 매도 조건 확인
-            should_sell = False
-            if price_targets.get('stop_loss_price') and current_price < Decimal(price_targets['stop_loss_price']):
-                should_sell = True
-            elif position['group'] == '일반' and price_targets.get('target_price') and current_price > Decimal(price_targets['target_price']):
-                should_sell = True
-
-            if should_sell:
-                self._execute_sell(symbol, position['quantity'], current_price, current_date)
-
-    def _buy_stocks(self, current_date, all_data, universe, group):
-        for symbol in universe:
-            if symbol in self.portfolio:
-                continue
-
-            history_to_date = all_data[(all_data['symbol'] == symbol) & (all_data['date'] <= current_date)]
-            if len(history_to_date) < 14: continue
-
-            current_price = history_to_date.iloc[-1]['close_price']
-            atr = calculate_atr(history_to_date.to_dict('records'), period=14)
-            if atr <= 0: continue
-
-            quantity = (self.cash * Decimal('0.05')) // current_price  # 가용 현금의 5%씩 분할 매수
-            if quantity > 0:
-                price_targets = get_price_targets(atr, float(current_price), float(current_price), group)
-                self._execute_buy(symbol, quantity, current_price, current_date, group, price_targets)
-
-    def _execute_buy(self, symbol, quantity, price, date, group, targets):
+    def _execute_buy(self, symbol, quantity, price, date):
         cost = quantity * price
-        if self.cash < cost:
+        fee = cost * Decimal(str(settings.TRADING_FEE_RATE))
+        total_cost = cost + fee
+
+        if self.cash < total_cost:
+            logger.warning(f"[{date}] 현금 부족으로 {symbol} 매수 실패. 필요: {total_cost}, 보유: {self.cash}")
             return
-        self.cash -= cost
-        self.portfolio[symbol] = {'quantity': quantity, 'buy_price': price, 'group': group, 'targets': targets}
-        self.trade_log.append(f"{date} - BUY: {quantity} of {symbol} at {price} ({group})")
-        logger.info(f"매수: {symbol}, 수량: {quantity}, 가격: {price}, 그룹: {group}")
+
+        self.cash -= total_cost
+
+        # 포트폴리오에 추가 또는 수량 업데이트
+        if symbol in self.portfolio:
+            current_qty = self.portfolio[symbol]['quantity']
+            current_avg_price = self.portfolio[symbol]['buy_price']
+            new_avg_price = (current_avg_price * current_qty + price * quantity) / (current_qty + quantity)
+            self.portfolio[symbol]['quantity'] += quantity
+            self.portfolio[symbol]['buy_price'] = new_avg_price
+        else:
+            self.portfolio[symbol] = {'quantity': quantity, 'buy_price': price}
+
+        self.trade_log.append({
+            'date': date, 'type': 'BUY', 'symbol': symbol,
+            'quantity': quantity, 'price': price
+        })
 
     def _execute_sell(self, symbol, quantity, price, date):
+        if symbol not in self.portfolio or self.portfolio[symbol]['quantity'] < quantity:
+            logger.warning(f"[{date}] 매도할 {symbol} 수량 부족.")
+            return
+
         revenue = quantity * price
-        self.cash += revenue
-        del self.portfolio[symbol]
-        self.trade_log.append(f"{date} - SELL: {quantity} of {symbol} at {price}")
-        logger.info(f"매도: {symbol}, 수량: {quantity}, 가격: {price}")
+        fee = revenue * Decimal(str(settings.TRADING_FEE_RATE))
+        tax = revenue * Decimal(str(settings.TRADING_TAX_RATE))
+        net_revenue = revenue - fee - tax
 
-    def _record_daily_value(self, date, market_data_today):
-        holdings_value = Decimal(0)
-        for symbol, position in self.portfolio.items():
-            stock_data = market_data_today[market_data_today['symbol'] == symbol]
-            current_price = stock_data.iloc[0]['close_price'] if not stock_data.empty else position['buy_price']
-            holdings_value += position['quantity'] * current_price
+        self.cash += net_revenue
 
-        total_value = self.cash + holdings_value
-        self.daily_portfolio_value.append({'date': date, 'value': total_value})
+        buy_price = self.portfolio[symbol]['buy_price']
+        profit = (price - buy_price) * quantity - (fee + tax)
+
+        self.portfolio[symbol]['quantity'] -= quantity
+        if self.portfolio[symbol]['quantity'] == 0:
+            del self.portfolio[symbol]
+
+        self.trade_log.append({
+            'date': date, 'type': 'SELL', 'symbol': symbol,
+            'quantity': quantity, 'price': price, 'profit': profit
+        })
 
     def generate_report(self):
-        final_value = self.daily_portfolio_value[-1]['value']
-        cagr = ((final_value / self.initial_capital) ** (Decimal('365.0') / len(self.daily_portfolio_value)) - 1) * 100
+        if not self.daily_portfolio_value:
+            return {"error": "No data to generate report."}
 
-        print("\n--- 백테스팅 결과 ---")
-        print(f"기간: {self.start_date} ~ {self.end_date}")
-        print(f"초기 자본: {self.initial_capital:,.0f} 원")
-        print(f"최종 자산: {final_value:,.0f} 원")
-        print(f"총 수익률: {(final_value / self.initial_capital - 1) * 100:.2f}%")
-        print(f"연평균 복리 수익률 (CAGR): {cagr:.2f}%")
-        # TODO: MDD (최대 낙폭) 계산 로직 추가
-        print("--------------------")
-        print("거래 내역:")
-        for log in self.trade_log:
-            print(log)
+        df = pd.DataFrame(self.daily_portfolio_value)
+        df['value'] = pd.to_numeric(df['value'])
+        df['date'] = pd.to_datetime(df['date'])
+        df.set_index('date', inplace=True)
+
+        # CAGR
+        final_value = df['value'].iloc[-1]
+        days = (self.end_date - self.start_date).days
+        cagr = ((final_value / self.initial_capital) ** (Decimal('365.0') / days) - 1) * 100 if days > 0 else Decimal(0)
+
+        # MDD
+        peak = df['value'].cummax()
+        drawdown = (df['value'] - peak) / peak
+        mdd = drawdown.min() * 100
+
+        # Sharpe Ratio (연율화)
+        df['daily_return'] = df['value'].pct_change()
+        sharpe_ratio = (df['daily_return'].mean() / df['daily_return'].std()) * (Decimal('252') ** Decimal('0.5')) if df['daily_return'].std() != 0 else Decimal(0)
+
+        # 승률
+        sell_trades = [t for t in self.trade_log if t['type'] == 'SELL']
+        wins = sum(1 for t in sell_trades if t['profit'] > 0)
+        total_trades = len(sell_trades)
+        win_rate = (wins / total_trades) * 100 if total_trades > 0 else 0
+
+        report = {
+            "start_date": self.start_date.strftime('%Y-%m-%d'),
+            "end_date": self.end_date.strftime('%Y-%m-%d'),
+            "initial_capital": f"{self.initial_capital:,.0f} KRW",
+            "final_value": f"{final_value:,.0f} KRW",
+            "cagr": f"{cagr:.2f}%",
+            "mdd": f"{mdd:.2f}%",
+            "sharpe_ratio": f"{sharpe_ratio:.2f}",
+            "win_rate": f"{win_rate:.2f}%",
+            "total_trades": total_trades,
+            "trade_log": self.trade_log,
+            "daily_values": df.reset_index().to_dict('records')
+        }
+
+        logger.info("--- 백테스팅 결과 ---")
+        for key, value in report.items():
+            if key not in ['trade_log', 'daily_values']:
+                logger.info(f"{key.replace('_', ' ').title()}: {value}")
+
+        return report

@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     'django_celery_beat',
     # Local Apps
     'trading',
+    'strategy_engine',
 ]
 
 MIDDLEWARE = [
@@ -114,25 +115,15 @@ CELERY_TIMEZONE = 'Asia/Seoul'
 
 # --- Celery Beat (Periodic Tasks Schedule) ---
 CELERY_BEAT_SCHEDULE = {
-    # Stage 1: Run initial stock screening daily at 8:50 AM KST (Mon-Fri)
-    'run-daily-morning-routine': {
-        'task': 'trading.tasks.run_daily_morning_routine',
-        'schedule': crontab(hour=8, minute=50, day_of_week='1-5'),
+    # 매주 월요일 오전 8시 50분에 전체 종목 스크리닝 실행
+    'run-weekly-stock-screening': {
+        'task': 'trading.tasks.run_stock_screening_task',
+        'schedule': crontab(hour=8, minute=50, day_of_week='mon'),
     },
-    # Stage 2: Run AI analysis on screened stocks at 8:55 AM KST (Mon-Fri)
-    'analyze-stocks-daily': {
-        'task': 'trading.tasks.analyze_stocks_task',
-        'schedule': crontab(hour=8, minute=55, day_of_week='1-5'),
-    },
-    # Stage 3: Execute main trading logic at 9:05 AM KST (Mon-Fri)
+    # 매일 (월-금) 오전 9시 5분에 메인 트레이딩 로직 실행
     'run-daily-trading': {
         'task': 'trading.tasks.run_daily_trader_task',
         'schedule': crontab(hour=9, minute=5, day_of_week='1-5'),
-    },
-    # Monitor open positions every minute during market hours (9 AM - 3:30 PM KST, Mon-Fri)
-    'monitor-positions-intraday': {
-        'task': 'trading.tasks.monitor_open_positions_task',
-        'schedule': crontab(hour='9-15', minute='*', day_of_week='1-5'),
     },
 }
 

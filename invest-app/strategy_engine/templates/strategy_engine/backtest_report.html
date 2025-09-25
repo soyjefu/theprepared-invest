@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strategy Backtest</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Strategy Backtest</h1>
+        <hr>
+
+        <!-- Backtest Form -->
+        <div class="card mb-4">
+            <div class="card-header">Run a New Backtest</div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label for="start_date" class="form-label">Start Date</label>
+                            <input type="date" class="form-control" id="start_date" name="start_date" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="end_date" class="form-label">End Date</label>
+                            <input type="date" class="form-control" id="end_date" name="end_date" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="initial_capital" class="form-label">Initial Capital (KRW)</label>
+                            <input type="number" class="form-control" id="initial_capital" name="initial_capital" value="100000000" required>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary w-100">Run</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Backtest Result -->
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+
+        {% if report %}
+            <h2>Backtest Report</h2>
+            <div class="card">
+                <div class="card-header">Summary</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <p><strong>Period:</strong> {{ report.start_date }} ~ {{ report.end_date }}</p>
+                            <p><strong>Initial Capital:</strong> {{ report.initial_capital }}</p>
+                            <p><strong>Final Value:</strong> {{ report.final_value }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <p><strong>CAGR:</strong> <span class="fw-bold">{{ report.cagr }}</span></p>
+                            <p><strong>MDD:</strong> <span class="fw-bold text-danger">{{ report.mdd }}</span></p>
+                        </div>
+                        <div class="col-md-4">
+                            <p><strong>Sharpe Ratio:</strong> <span class="fw-bold">{{ report.sharpe_ratio }}</span></p>
+                            <p><strong>Win Rate:</strong> {{ report.win_rate }} ({{ report.total_trades }} trades)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header">Portfolio Value</div>
+                <div class="card-body">
+                    {% if plot_div %}
+                        {{ plot_div|safe }}
+                    {% else %}
+                        <p>Could not generate portfolio value graph.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header">Trade Log</div>
+                <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Symbol</th>
+                                <th>Quantity</th>
+                                <th>Price</th>
+                                <th>Profit/Loss</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for trade in report.trade_log %}
+                                <tr>
+                                    <td>{{ trade.date|date:"Y-m-d" }}</td>
+                                    <td>
+                                        <span class="badge {% if trade.type == 'BUY' %}bg-success{% else %}bg-danger{% endif %}">{{ trade.type }}</span>
+                                    </td>
+                                    <td>{{ trade.symbol }}</td>
+                                    <td>{{ trade.quantity }}</td>
+                                    <td>{{ trade.price|floatformat:0 }}</td>
+                                    <td>
+                                        {% if trade.profit is not None %}
+                                            <span class="{% if trade.profit > 0 %}text-success{% else %}text-danger{% endif %}">
+                                                {{ trade.profit|floatformat:0 }}
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>
