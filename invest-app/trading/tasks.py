@@ -12,33 +12,39 @@ logger = logging.getLogger(__name__)
 @shared_task
 def run_daily_morning_routine():
     """
-    1차: KIS API를 통해 거래량 상위 종목을 조회하고 기본적인 필터링을 거쳐
-    AnalyzedStock 모델에 저장합니다.
+    Celery task for the first stage of the trading process: initial stock screening.
+
+    This task fetches top volume stocks from the KIS API, performs basic
+    filtering, and saves the results to the AnalyzedStock model. It updates
+    the cache with its progress for frontend display.
     """
     logger.info("Celery Task: Starting initial stock screening.")
-    cache.set('screening_progress', {'status': '스크리닝 시작 중...', 'progress': 0}, timeout=300)
+    cache.set('screening_progress', {'status': 'Starting screening...', 'progress': 0}, timeout=300)
     try:
         screen_initial_stocks()
-        cache.set('screening_progress', {'status': '스크리닝 완료', 'progress': 100}, timeout=60)
+        cache.set('screening_progress', {'status': 'Screening complete', 'progress': 100}, timeout=60)
     except Exception as e:
         logger.error(f"An error occurred during stock screening: {e}", exc_info=True)
-        cache.set('screening_progress', {'status': f'오류: {e}', 'progress': -1}, timeout=300)
+        cache.set('screening_progress', {'status': f'Error: {e}', 'progress': -1}, timeout=300)
     logger.info("Celery Task: Initial stock screening finished.")
 
 
 @shared_task
 def analyze_stocks_task():
     """
-    2차: 1차 스크리닝된 종목들을 대상으로 AI 분석을 수행하고,
-    투자 기간(horizon)과 리스크 관리 기준을 결정하여 DB에 업데이트합니다.
+    Celery task for the second stage: AI-powered stock analysis.
+
+    This task takes the stocks from the initial screening, performs a detailed
+    AI analysis on each one to determine an investment horizon and risk management
+    levels (stop-loss/target price), and updates the AnalyzedStock entries in the DB.
     """
     logger.info("Celery Task: Starting AI stock analysis.")
-    cache.set('analysis_progress', {'status': '분석 시작 중...', 'progress': 0}, timeout=300)
+    cache.set('analysis_progress', {'status': 'Starting analysis...', 'progress': 0}, timeout=300)
     
     first_account = TradingAccount.objects.filter(is_active=True).first()
     if not first_account:
         logger.error("No active trading account found for API calls. Aborting analysis.")
-        cache.set('analysis_progress', {'status': '오류: 활성 계좌 없음', 'progress': -1}, timeout=300)
+        cache.set('analysis_progress', {'status': 'Error: No active account found', 'progress': -1}, timeout=300)
         return
 
     client = KISApiClient(
@@ -54,7 +60,7 @@ def analyze_stocks_task():
 
     if total_stocks == 0:
         logger.info("No stocks to analyze.")
-        cache.set('analysis_progress', {'status': '완료: 분석할 종목 없음', 'progress': 100}, timeout=60)
+        cache.set('analysis_progress', {'status': 'Complete: No stocks to analyze', 'progress': 100}, timeout=60)
         return
 
     for i, stock in enumerate(stocks_to_analyze):
@@ -75,11 +81,11 @@ def analyze_stocks_task():
             logger.error(f"An error occurred during analysis of {stock.symbol}: {e}", exc_info=True)
 
         progress = int(((i + 1) / total_stocks) * 100)
-        status_text = f"분석 중: {stock.stock_name} ({i + 1}/{total_stocks})"
+        status_text = f"Analyzing: {stock.stock_name} ({i + 1}/{total_stocks})"
         cache.set('analysis_progress', {'status': status_text, 'progress': progress}, timeout=300)
 
     logger.info("Celery Task: AI stock analysis finished.")
-    cache.set('analysis_progress', {'status': '분석 완료', 'progress': 100}, timeout=60)
+    cache.set('analysis_progress', {'status': 'Analysis complete', 'progress': 100}, timeout=60)
 
 
 from decimal import Decimal
@@ -88,7 +94,11 @@ from .models import StrategySettings, Portfolio, TradeLog
 @shared_task
 def execute_ai_trades_task():
     """
-    3차: AI 분석 결과를 바탕으로 포트폴리오 구성 및 실제 매매를 수행합니다.
+    Celery task for the third stage: automated trade execution.
+
+    Based on the AI analysis results, this task identifies new trading
+    opportunities, calculates the appropriate trade size based on a
+    pre-defined budget, and places buy orders via the KIS API.
     """
     logger.info("Celery Task: Starting AI trade execution.")
 
@@ -117,16 +127,15 @@ def execute_ai_trades_task():
     cash_available = Decimal(output1.get('dnca_tot_amt', '0'))
     logger.info(f"Total Assets: {total_assets}, Available Cash: {cash_available}")
 
-    # 3. Get current portfolio from our DB
+    # 3. Get current portfolio from the database
     current_portfolio_symbols = list(Portfolio.objects.filter(account=account, is_open=True).values_list('symbol', flat=True))
 
     # 4. Identify new trading opportunities
-    # Find stocks analyzed today with a clear investment horizon, that are not already in our portfolio
     opportunities = AnalyzedStock.objects.filter(
         investment_horizon__in=['SHORT', 'MID', 'LONG']
     ).exclude(
         symbol__in=current_portfolio_symbols
-    ).order_by('-analysis_date', '-last_price') # Simple ordering, can be improved
+    ).order_by('-analysis_date', '-last_price')
 
     if not opportunities:
         logger.info("No new trading opportunities found.")
@@ -135,10 +144,7 @@ def execute_ai_trades_task():
     logger.info(f"Found {len(opportunities)} new opportunities. Checking against portfolio balance.")
 
     # 5. Execute trades based on allocation strategy
-    # This is a simplified logic. A real-world scenario would be more complex.
-    # We'll try to fill one new position if cash is available.
-    
-    # Define how much of the cash to use for a new position (e.g., 20%)
+    # This is a simplified logic that attempts to fill one new position if cash is available.
     TRADE_BUDGET_PER_STOCK = cash_available * Decimal('0.20')
 
     for opp in opportunities:
@@ -156,7 +162,6 @@ def execute_ai_trades_task():
 
             logger.info(f"Attempting to buy {quantity_to_buy} shares of {opp.symbol} at {stock_price}.")
 
-            # Place order using the new validated method
             order_response = client.place_order(
                 account=account,
                 symbol=opp.symbol,
@@ -165,12 +170,11 @@ def execute_ai_trades_task():
                 order_type='BUY'
             )
 
-            # The creation of TradeLog and Portfolio is now handled by the place_order method
-            # and the post_save signal on the TradeLog model.
+            # The creation of TradeLog and Portfolio is now handled by signals.
             # We just need to check if the order was accepted by the broker.
             if order_response and order_response.get('rt_cd') == '0':
                 logger.info(f"AI trade order for {opp.symbol} was successfully sent to the broker.")
-                # Reduce cash for next loop iteration to avoid over-ordering in the same run
+                # Reduce cash for next loop iteration to avoid over-ordering in the same run.
                 cash_available -= (quantity_to_buy * stock_price)
             elif order_response and order_response.get('is_validation_error'):
                 logger.warning(f"AI trade for {opp.symbol} failed validation: {order_response.get('msg1')}")
@@ -183,8 +187,11 @@ def execute_ai_trades_task():
 @shared_task
 def run_all_active_strategies():
     """
-    Placeholder task to prevent `KeyError: 'trading.tasks.run_all_active_strategies'`
-    This task was likely part of a previous feature and is still in the scheduler's database.
+    Placeholder task to prevent errors for a potentially deprecated task name.
+
+    This task was likely part of a previous feature and may still be present in
+    the scheduler's database. It does nothing to avoid breaking the system
+    if a beat schedule tries to run it.
     """
     logger.info("Placeholder task 'run_all_active_strategies' executed. No action taken.")
     pass
@@ -192,17 +199,20 @@ def run_all_active_strategies():
 @shared_task
 def monitor_open_positions_task():
     """
-    실시간으로 현재 보유 포지션을 모니터링하고, 손절/익절 조건 도달 시 매도 주문을 실행합니다.
+    Celery task to monitor all open positions and execute sales if necessary.
+
+    This task iterates through all open portfolio positions, fetches their
+    current market price, and checks if the price has hit the pre-defined
+    stop-loss or target-price levels. If a condition is met, it places a
+    sell order.
     """
     logger.info("Celery Task: Starting real-time position monitoring.")
 
-    # Get active account
     account = TradingAccount.objects.filter(is_active=True).first()
     if not account:
         logger.warning("No active account for monitoring.")
         return
 
-    # Get open positions
     open_positions = Portfolio.objects.filter(account=account, is_open=True)
     if not open_positions.exists():
         logger.info("No open positions to monitor.")
@@ -212,7 +222,6 @@ def monitor_open_positions_task():
     client = KISApiClient(app_key=account.app_key, app_secret=account.app_secret, account_no=account.account_number, account_type=account.account_type)
 
     for pos in open_positions:
-        # Get current price
         price_info_response = client.get_current_price(pos.symbol)
         if not (price_info_response and price_info_response.is_ok()):
             logger.warning(f"Could not fetch current price for {pos.symbol}. Skipping. "
@@ -225,7 +234,6 @@ def monitor_open_positions_task():
         if current_price <= 0:
             continue
 
-        # Check stop-loss and target-price
         should_sell = False
         sell_reason = ""
         if current_price <= pos.stop_loss_price:
@@ -238,7 +246,6 @@ def monitor_open_positions_task():
         if should_sell:
             logger.info(f"Selling {pos.symbol} for account {account.account_name}. Reason: {sell_reason}")
 
-            # Place sell order using the new validated method
             order_response = client.place_order(
                 account=account,
                 symbol=pos.symbol,
@@ -266,33 +273,38 @@ import asyncio
 @shared_task
 def stream_kis_data_task():
     """
-    Connects to the KIS WebSocket server, subscribes to real-time data,
-    and broadcasts it to the appropriate Channels groups.
-    This task should only have one worker running it.
+    A long-running Celery task to stream real-time data from the KIS WebSocket.
+
+    This task establishes a persistent connection to the KIS WebSocket server.
+    It uses a cache lock to ensure that only one instance of the streamer
+    is running across all Celery workers. The task handles reconnection logic
+    and delegates message processing to async helper functions.
     """
     logger.info("Attempting to start KIS WebSocket data streamer task.")
 
-    # Use a cache lock to ensure only one instance of this task runs.
     if not cache.add("kis_streamer_lock", "running", timeout=None):
         logger.warning("KIS data streamer task is already running. Exiting.")
         return
 
     try:
-        # This is a long-running task, so we run the async part synchronously.
         async_to_sync(run_streamer)()
     except Exception as e:
         logger.error(f"KIS data streamer task failed: {e}", exc_info=True)
     finally:
-        # Remove the lock when the task exits.
         cache.delete("kis_streamer_lock")
         logger.info("KIS data streamer task stopped and lock released.")
 
 
 async def run_streamer():
-    """The core async function for the WebSocket streamer."""
+    """
+    The core async function that manages the WebSocket connection and subscriptions.
+
+    It connects to the KIS server, subscribes to execution reports for all active
+    accounts and price updates for all stocks in the portfolio, and then enters
+    an infinite loop to listen for messages.
+    """
     channel_layer = get_channel_layer()
 
-    # We need an active account to get an approval key
     first_account = await database_sync_to_async(TradingAccount.objects.filter(is_active=True).first)()
     if not first_account:
         logger.error("No active trading account found for KIS stream. Aborting.")
@@ -319,19 +331,16 @@ async def run_streamer():
             async with websockets.connect(uri, ping_interval=None) as websocket:
                 logger.info("KIS streamer connected to WebSocket server.")
 
-                # Subscribe to execution reports for all active accounts
                 all_accounts = await database_sync_to_async(list)(TradingAccount.objects.filter(is_active=True))
                 for account in all_accounts:
                     await subscribe_to_executions(websocket, approval_key, account, client.is_simulation)
 
-                # Subscribe to prices for all unique stocks in portfolios
                 all_symbols = await database_sync_to_async(list)(
                     Portfolio.objects.filter(is_open=True).values_list('symbol', flat=True).distinct()
                 )
                 for symbol in all_symbols:
                     await subscribe_to_price(websocket, approval_key, symbol)
 
-                # Listen for messages
                 async for message in websocket:
                     await handle_stream_message(message, channel_layer, client)
 
@@ -344,8 +353,17 @@ async def run_streamer():
 
 
 async def subscribe_to_executions(websocket, key, account, is_sim):
+    """
+    Sends a WebSocket message to subscribe to trade execution reports.
+
+    Args:
+        websocket: The WebSocket connection object.
+        key (str): The WebSocket approval key.
+        account (TradingAccount): The account to subscribe for.
+        is_sim (bool): True if the account is for simulation.
+    """
     tr_id = "H0STCNI9" if is_sim else "H0STCNI0"
-    user_id = account.user.username # This might need adjustment based on KIS specs
+    user_id = account.user.username
     subscription_data = {
         "header": {"approval_key": key, "custtype": "P", "tr_type": "1", "content-type": "utf-8"},
         "body": {"input": {"tr_id": tr_id, "tr_key": user_id}}
@@ -354,17 +372,36 @@ async def subscribe_to_executions(websocket, key, account, is_sim):
     logger.info(f"Subscribed to execution reports for account {account.account_number}")
 
 async def subscribe_to_price(websocket, key, symbol):
+    """
+    Sends a WebSocket message to subscribe to real-time price updates for a stock.
+
+    Args:
+        websocket: The WebSocket connection object.
+        key (str): The WebSocket approval key.
+        symbol (str): The stock symbol to subscribe to.
+    """
     subscription_data = {
         "header": {"approval_key": key, "custtype": "P", "tr_type": "1", "content-type": "utf-8"},
-        "body": {"input": {"tr_id": "JEQ", "tr_key": symbol}} # JEQ is for real-time price
+        "body": {"input": {"tr_id": "JEQ", "tr_key": symbol}}
     }
     await websocket.send(json.dumps(subscription_data))
     logger.info(f"Subscribed to price updates for symbol {symbol}")
 
 
 async def handle_stream_message(message, channel_layer, client):
-    """Parses messages from KIS and broadcasts them."""
-    if message.startswith('{'): # It's a JSON message (likely a response to subscription)
+    """
+    Parses and handles incoming messages from the KIS WebSocket stream.
+
+    It identifies message types (price update vs. execution report), decrypts
+    data where necessary, and broadcasts the processed data to the relevant
+    Django Channels group for real-time frontend updates.
+
+    Args:
+        message (str): The raw message from the WebSocket.
+        channel_layer: The Django Channels layer for broadcasting.
+        client (KISApiClient): The API client, needed for decryption.
+    """
+    if message.startswith('{'):
         logger.info(f"KIS stream received JSON message: {message}")
         return
 
@@ -375,8 +412,7 @@ async def handle_stream_message(message, channel_layer, client):
 
     tr_id = parts[1]
 
-    # Handle Price Update
-    if tr_id == "JEQ": # Real-time price
+    if tr_id == "JEQ": # Real-time price update
         price_data = {
             'type': 'stock_price_update',
             'symbol': parts[2].strip(),
@@ -384,17 +420,15 @@ async def handle_stream_message(message, channel_layer, client):
             'volume': int(parts[12]),
         }
         await channel_layer.group_send(f"stock_price_{price_data['symbol']}", {
-            "type": "stock.price.update", # This corresponds to the method name in the consumer
+            "type": "stock.price.update",
             "data": price_data
         })
 
-    # Handle Execution Report
-    elif tr_id in ("H0STCNI0", "H0STCNI9"):
+    elif tr_id in ("H0STCNI0", "H0STCNI9"): # Execution report
         try:
             decrypted_data = client.decrypt_websocket_data(parts[3])
             fields = decrypted_data.split('^')
 
-            # Find the account this execution belongs to
             account_number = fields[0]
             account = await database_sync_to_async(TradingAccount.objects.filter(account_number__contains=account_number.replace('-', '')).first)()
 
@@ -414,8 +448,8 @@ async def handle_stream_message(message, channel_layer, client):
                     'timestamp': fields[19],
                 }
 
-                # Create the trade log asynchronously.
-                # The post_save signal on TradeLog will handle broadcasting the update.
+                # Create the trade log asynchronously. The post_save signal on
+                # TradeLog will handle broadcasting the update to the frontend.
                 await database_sync_to_async(TradeLog.objects.create)(
                     account=account,
                     symbol=exec_data['symbol'],
@@ -433,8 +467,11 @@ async def handle_stream_message(message, channel_layer, client):
 @shared_task
 def rebalance_portfolio_task():
     """
-    Periodically re-analyzes all open positions in all active accounts
-    and automatically updates their stop-loss and target prices based on the latest AI analysis.
+    Celery task to periodically rebalance the portfolio.
+
+    This task re-analyzes all open positions in active accounts and updates
+    their stop-loss and target prices based on the latest AI analysis. This
+    allows the risk management strategy to adapt to changing market conditions.
     """
     logger.info("Celery Task: Starting periodic portfolio rebalancing.")
 
@@ -443,7 +480,6 @@ def rebalance_portfolio_task():
         logger.info("No active accounts to rebalance.")
         return
 
-    # We can use the first account's client for all analysis calls
     first_account = active_accounts.first()
     client = KISApiClient(
         app_key=first_account.app_key,
@@ -452,7 +488,6 @@ def rebalance_portfolio_task():
         account_type=first_account.account_type
     )
 
-    # Get the current market trend once to avoid re-calculating it for every stock
     market_trend = ai_analysis_service.get_market_trend(client)
     logger.info(f"Rebalancing with current market trend: {market_trend}")
 
@@ -462,11 +497,9 @@ def rebalance_portfolio_task():
 
         for pos in open_positions:
             try:
-                # Re-run the AI analysis for the stock
                 analysis_result = ai_analysis_service.analyze_stock(pos.symbol, client, market_trend=market_trend)
 
                 if analysis_result:
-                    # Update the portfolio item with the new risk levels
                     pos.stop_loss_price = Decimal(analysis_result.stop_loss_price)
                     pos.target_price = Decimal(analysis_result.target_price)
                     pos.save()

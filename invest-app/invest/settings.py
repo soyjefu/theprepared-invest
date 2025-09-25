@@ -1,20 +1,22 @@
-# invest-app/invest/settings.py
+"""
+Django settings for the invest project.
+"""
 
 import os
+import sys
 from pathlib import Path
-from celery.schedules import crontab # 수정: crontab import 추가
+from celery.schedules import crontab
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+# --- Core Paths ---
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# ... (기존 설정은 모두 동일) ...
-
+# --- Security ---
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-default-secret-key-for-development')
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = ['*']
 CSRF_TRUSTED_ORIGINS = ['https://stock.theprepared.kr']
 
-# Application definition
+# --- Application Definitions ---
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -30,7 +32,6 @@ INSTALLED_APPS = [
     'trading',
 ]
 
-# ... (MIDDLEWARE, ROOT_URLCONF, TEMPLATES 등은 동일) ...
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -40,7 +41,12 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
 ROOT_URLCONF = 'invest.urls'
+WSGI_APPLICATION = 'invest.wsgi.application'
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# --- Templates ---
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -56,7 +62,8 @@ TEMPLATES = [
         },
     },
 ]
-WSGI_APPLICATION = 'invest.wsgi.application'
+
+# --- Database ---
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -67,21 +74,26 @@ DATABASES = {
         'PORT': 5432,
     }
 }
+
+# --- Password Validation ---
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
-LANGUAGE_CODE = 'ko-kr'
+
+# --- Internationalization ---
+LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Seoul'
 USE_I18N = True
 USE_TZ = True
+
+# --- Static Files ---
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Redis Cache Settings
+# --- Caching (Redis) ---
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
@@ -92,7 +104,7 @@ CACHES = {
     }
 }
 
-# Celery Settings
+# --- Celery ---
 CELERY_BROKER_URL = 'redis://redis:6379/0'
 CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
 CELERY_ACCEPT_CONTENT = ['application/json']
@@ -100,44 +112,40 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Asia/Seoul'
 
-# Celery Beat (Periodic Tasks) Settings
+# --- Celery Beat (Periodic Tasks Schedule) ---
 CELERY_BEAT_SCHEDULE = {
-    # 매일 새벽 4시에 1차, 2차 분석 실행
+    # Stage 1: Run initial stock screening daily at 8:50 AM KST (Mon-Fri)
     'run-daily-morning-routine': {
         'task': 'trading.tasks.run_daily_morning_routine',
-        'schedule': crontab(minute=0, hour=4), # 매일 새벽 4시에 실행
+        'schedule': crontab(hour=8, minute=50, day_of_week='1-5'),
     },
-    # 2. 매일 오전 8시 55분에 2차 AI 분석 실행
+    # Stage 2: Run AI analysis on screened stocks at 8:55 AM KST (Mon-Fri)
     'analyze-stocks-daily': {
         'task': 'trading.tasks.analyze_stocks_task',
         'schedule': crontab(hour=8, minute=55, day_of_week='1-5'),
     },
-    # 3. 매일 오전 9시 5분에 3차 매매 실행
+    # Stage 3: Execute AI-based trades at 9:05 AM KST (Mon-Fri)
     'execute-trades-daily': {
         'task': 'trading.tasks.execute_ai_trades_task',
         'schedule': crontab(hour=9, minute=5, day_of_week='1-5'),
     },
-    # 4. 매일 장중 1분마다 포지션 모니터링 실행
+    # Monitor open positions every minute during market hours (9 AM - 3:30 PM KST, Mon-Fri)
     'monitor-positions-intraday': {
         'task': 'trading.tasks.monitor_open_positions_task',
         'schedule': crontab(hour='9-15', minute='*', day_of_week='1-5'),
     },
 }
 
-# --- Test Settings ---
-# --- Login Redirect Settings ---
-# Redirect users to the admin login page if they are not authenticated
+# --- Authentication ---
 LOGIN_URL = '/admin/login/'
 
-# --- Test Settings ---
-# Use an in-memory SQLite database for tests to avoid external dependencies
-import sys
+# --- Testing ---
+# Use in-memory database and channel layer for tests to ensure isolation and speed.
 if 'test' in sys.argv:
     DATABASES['default'] = {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': ':memory:'
     }
-    # Use an in-memory channel layer for tests
     CHANNEL_LAYERS = {
         "default": {
             "BACKEND": "channels.layers.InMemoryChannelLayer"

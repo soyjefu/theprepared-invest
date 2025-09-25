@@ -4,16 +4,21 @@ from .models import Portfolio
 
 class PortfolioUpdateSerializer(serializers.ModelSerializer):
     """
-    Serializer for updating specific fields of a Portfolio item.
+    Serializer for updating risk management fields of a Portfolio item.
+
+    This serializer is used with the `PortfolioDetailAPIView` to allow users
+    to modify the `stop_loss_price` and `target_price` of their open positions
+    via a PATCH request.
     """
     class Meta:
+        """
+        Meta options for the PortfolioUpdateSerializer.
+        """
         model = Portfolio
-        # Fields that the user is allowed to update via the API
         fields = [
             'stop_loss_price',
             'target_price',
         ]
-        # Make fields not required, so PATCH can be used for partial updates
         extra_kwargs = {
             'stop_loss_price': {'required': False},
             'target_price': {'required': False},
@@ -21,8 +26,10 @@ class PortfolioUpdateSerializer(serializers.ModelSerializer):
 
 class LiquidateSerializer(serializers.Serializer):
     """
-    Serializer for the liquidate action.
-    Validates the target cash percentage.
+    Serializer for validating the input to the liquidate action API.
+
+    It ensures that the `target_cash_percentage` provided by the user is a
+    valid decimal between 0 and 100.
     """
     target_cash_percentage = serializers.DecimalField(
         max_digits=5,

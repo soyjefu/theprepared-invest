@@ -13,17 +13,26 @@ logger = logging.getLogger(__name__)
 @receiver(post_save, sender=TradeLog)
 def on_tradelog_save(sender, instance, created, **kwargs):
     """
-    Handles post-save events for TradeLog model.
-    Broadcasts the new/updated trade log to the relevant user's channel group.
+    Signal handler that broadcasts updates when a TradeLog instance is saved.
+
+    This function is triggered after a TradeLog is saved and sends a message
+    via Django Channels to a group specific to the trade's account. This
+    allows the frontend to receive real-time updates on trade statuses. It also
+    sends refresh requests for portfolio and account data.
+
+    Args:
+        sender: The model class that sent the signal (TradeLog).
+        instance (TradeLog): The actual instance being saved.
+        created (bool): True if a new record was created.
+        **kwargs: Wildcard keyword arguments.
     """
     logger.info(f"TradeLog signal triggered for Order ID: {instance.order_id}, Status: {instance.status}")
 
     channel_layer = get_channel_layer()
     group_name = f"trades_{instance.account.id}"
 
-    # Serialize the instance data
     data = {
-        "type": "trade_update", # This is the message type for the frontend
+        "type": "trade_update",
         "log": {
             "id": instance.id,
             "symbol": instance.symbol,
@@ -36,8 +45,6 @@ def on_tradelog_save(sender, instance, created, **kwargs):
         }
     }
 
-    # The handler in the consumer is named 'trade_update', so the type here must match.
-    # We convert it from snake_case to dot.case for the channel layer.
     message = {
         "type": "trade.update",
         "data": data
@@ -46,8 +53,7 @@ def on_tradelog_save(sender, instance, created, **kwargs):
     async_to_sync(channel_layer.group_send)(group_name, message)
     logger.info(f"Sent trade update to group {group_name}")
 
-    # Also trigger a portfolio and account balance refresh
-    # This is a simple way to notify the client that other data is now stale.
+    # Trigger a refresh on the frontend for portfolio and account balance.
     async_to_sync(channel_layer.group_send)(f"portfolio_{instance.account.id}", {
         "type": "portfolio.update",
         "data": {"type": "portfolio_refresh_required"}
@@ -63,8 +69,18 @@ def on_tradelog_save(sender, instance, created, **kwargs):
 @receiver(post_save, sender=TradeLog)
 def update_portfolio_on_execution(sender, instance, created, **kwargs):
     """
-    Listens for executed trades and updates the portfolio accordingly.
-    This runs in a transaction to ensure atomicity.
+    Signal handler to update the Portfolio model when a trade is executed.
+
+    If a 'BUY' trade is executed, it creates a new Portfolio position or
+    updates an existing one (averaging down). If a 'SELL' trade is executed,
+    it reduces the quantity of or closes an existing position. The entire
+    operation is wrapped in a database transaction.
+
+    Args:
+        sender: The model class that sent the signal (TradeLog).
+        instance (TradeLog): The actual instance being saved.
+        created (bool): True if a new record was created.
+        **kwargs: Wildcard keyword arguments.
     """
     if instance.status != 'EXECUTED':
         return
@@ -74,7 +90,6 @@ def update_portfolio_on_execution(sender, instance, created, **kwargs):
     try:
         with transaction.atomic():
             if instance.trade_type == 'BUY':
-                # Get the analysis data to set stop-loss/target prices on new entries
                 analyzed_stock = AnalyzedStock.objects.filter(symbol=instance.symbol).first()
                 stop_loss = analyzed_stock.raw_analysis_data.get('stop_loss_price', instance.price * Decimal('0.9'))
                 target_price = analyzed_stock.raw_analysis_data.get('target_price', instance.price * Decimal('1.2'))
@@ -94,14 +109,13 @@ def update_portfolio_on_execution(sender, instance, created, **kwargs):
                 )
 
                 if not created:
-                    # It's an existing position, so we update it (add to the position)
+                    # Update existing position (average down)
                     old_total_value = portfolio.quantity * portfolio.average_buy_price
                     new_total_value = instance.quantity * instance.price
                     total_quantity = portfolio.quantity + instance.quantity
 
                     portfolio.average_buy_price = (old_total_value + new_total_value) / total_quantity
                     portfolio.quantity = total_quantity
-                    # We can also decide if we want to update stop-loss/target prices here
                     portfolio.save()
                     logger.info(f"Updated portfolio position for {instance.symbol}. New quantity: {total_quantity}")
                 else:
@@ -112,10 +126,12 @@ def update_portfolio_on_execution(sender, instance, created, **kwargs):
                     portfolio = Portfolio.objects.get(account=instance.account, symbol=instance.symbol, is_open=True)
 
                     if portfolio.quantity > instance.quantity:
+                        # Partial sell
                         portfolio.quantity -= instance.quantity
                         portfolio.save()
                         logger.info(f"Partially sold {instance.symbol}. Remaining quantity: {portfolio.quantity}")
                     else:
+                        # Full sell, close position
                         portfolio.quantity = 0
                         portfolio.is_open = False
                         portfolio.save()

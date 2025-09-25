@@ -17,7 +17,13 @@ logger = logging.getLogger(__name__)
 
 def root_redirect(request):
     """
-    Redirects the root URL ('/') to the main dashboard ('/dashboard/').
+    Redirects the root URL ('/') to the main dashboard.
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        An HttpResponseRedirect to the dashboard URL.
     """
     return HttpResponseRedirect(reverse('trading:dashboard'))
 
@@ -26,9 +32,21 @@ def root_redirect(request):
 @login_required
 def dashboard(request):
     """
-    Displays the main dashboard, showing a summary of all active accounts.
-    It fetches live data for the balance summary but uses the local Portfolio
-    database for position details to ensure all necessary data is available.
+    Renders the main dashboard page.
+
+    This view fetches and displays a summary of all active trading accounts
+    for the logged-in user. It retrieves live balance information from the API
+    and combines it with portfolio data from the local database.
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        An HttpResponse object rendering the dashboard template with context.
+        The context includes:
+        - 'account_details': A list of dictionaries, each containing account
+          info, balance, positions, and any errors.
+        - 'grand_total_assets': The sum of assets across all accounts.
     """
     context = {}
     all_accounts = TradingAccount.objects.filter(user=request.user, is_active=True)
@@ -43,7 +61,6 @@ def dashboard(request):
             account_type=account.account_type
         )
 
-        # Fetch live balance summary
         balance_summary = None
         error_msg = None
         try:
@@ -60,7 +77,6 @@ def dashboard(request):
             logger.error(f"Error fetching balance for account {account.account_name}: {e}", exc_info=True)
             error_msg = f"Application Error: {e}"
 
-        # Fetch positions from our database and enrich with live data
         positions_from_db = list(Portfolio.objects.filter(account=account, is_open=True))
         for pos in positions_from_db:
             try:
@@ -74,7 +90,7 @@ def dashboard(request):
                     else:
                         pos.evlu_pfls_rt = 0
                 else:
-                    pos.current_price = pos.average_buy_price # Fallback
+                    pos.current_price = pos.average_buy_price
                     pos.evlu_amt = pos.quantity * pos.average_buy_price
                     pos.evlu_pfls_rt = 0
             except Exception as e:
@@ -86,7 +102,7 @@ def dashboard(request):
         account_details.append({
             'account': account,
             'balance_summary': balance_summary,
-            'positions': positions_from_db, # Use our enriched model data
+            'positions': positions_from_db,
             'error': error_msg
         })
 
@@ -97,7 +113,15 @@ def dashboard(request):
 @login_required
 def portfolio(request):
     """
-    Displays the detailed portfolio management page.
+    Renders the portfolio management page.
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        An HttpResponse object rendering the portfolio template with context.
+        The context includes:
+        - 'portfolio_items': A queryset of all open portfolio items for the user.
     """
     portfolio_items = Portfolio.objects.filter(account__user=request.user, is_open=True).order_by('stock_name')
     context = {
@@ -108,9 +132,17 @@ def portfolio(request):
 @login_required
 def orders(request):
     """
-    Displays the order and trade history page.
+    Renders the order and trade history page.
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        An HttpResponse object rendering the orders template with context.
+        The context includes:
+        - 'trade_logs': A queryset of the 100 most recent trade logs for the user.
     """
-    trade_logs = TradeLog.objects.filter(account__user=request.user).order_by('-timestamp')[:100] # Limit to recent 100
+    trade_logs = TradeLog.objects.filter(account__user=request.user).order_by('-timestamp')[:100]
     context = {
         'trade_logs': trade_logs
     }
@@ -119,7 +151,20 @@ def orders(request):
 @login_required
 def system_management(request):
     """
-    Displays the page for managing system settings, AI analysis, and periodic tasks.
+    Renders the system management page.
+
+    This page provides tools for managing strategy settings, viewing AI-analyzed
+    stocks, and controlling periodic background tasks.
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        An HttpResponse object rendering the system management template with context.
+        The context includes:
+        - 'settings': The current strategy settings.
+        - 'analyzed_stocks': A queryset of recent investable stocks.
+        - 'periodic_tasks': A queryset of all scheduled Celery tasks.
     """
     context = {
         'settings': StrategySettings.objects.first(),
@@ -136,14 +181,31 @@ def system_management(request):
 def trigger_stock_screening(request):
     """
     Triggers the Celery task to run the initial stock screening.
+
+    This is a POST-only view that initiates the `run_daily_morning_routine`
+    Celery task. It adds a success message and redirects the user back to the
+    system management page.
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        An HttpResponseRedirect to the system management page.
     """
     run_daily_morning_routine.delay()
-    messages.success(request, "1단계 종목 스크리닝 작업이 시작되었습니다.")
+    messages.success(request, "Stage 1: Stock screening has started.")
     return redirect('trading:system_management')
 
 def get_screening_status(request):
     """
-    Gets the status of the running screening task from the cache.
+    API endpoint to get the status of the running screening task from the cache.
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        A JsonResponse containing the status and progress of the task,
+        or a default 'idle' status if no task is running.
     """
     progress_data = cache.get('screening_progress')
     if progress_data:
@@ -154,15 +216,32 @@ def get_screening_status(request):
 @require_POST
 def trigger_stock_analysis(request):
     """
-    Triggers the Celery task to run the stock analysis.
+    Triggers the Celery task to run the AI stock analysis.
+
+    This is a POST-only view that initiates the `analyze_stocks_task`
+    Celery task. It adds a success message and redirects the user back to the
+    system management page.
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        An HttpResponseRedirect to the system management page.
     """
     analyze_stocks_task.delay()
-    messages.success(request, "2단계 AI 분석 작업이 시작되었습니다. 잠시 후 결과가 반영됩니다.")
-    return redirect('trading:system_management') # Redirect back to the management page
+    messages.success(request, "Stage 2: AI analysis has started. Results will be updated shortly.")
+    return redirect('trading:system_management')
 
 def get_analysis_status(request):
     """
-    Gets the status of the running analysis task from the cache.
+    API endpoint to get the status of the running analysis task from the cache.
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        A JsonResponse containing the status and progress of the task,
+        or a default 'idle' status if no task is running.
     """
     progress_data = cache.get('analysis_progress')
     if progress_data:
@@ -173,7 +252,16 @@ def get_analysis_status(request):
 @require_POST
 def update_task_schedule(request):
     """
-    API endpoint to update a periodic task's schedule and status.
+    API endpoint to update a periodic task's schedule and status (enabled/disabled).
+
+    Expects a JSON payload with 'task_id', 'schedule' (as a crontab string),
+    and 'enabled' (boolean).
+
+    Args:
+        request: The HttpRequest object.
+
+    Returns:
+        A JsonResponse indicating success or failure.
     """
     try:
         data = json.loads(request.body)

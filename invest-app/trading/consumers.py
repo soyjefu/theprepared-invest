@@ -9,16 +9,21 @@ logger = logging.getLogger(__name__)
 
 class DashboardConsumer(AsyncWebsocketConsumer):
     """
-    Handles WebSocket connections for the main dashboard and other pages.
-    This consumer manages subscriptions to different data streams (groups)
-    and forwards messages from those groups to the client.
+    Handles WebSocket connections for real-time dashboard updates.
+
+    This consumer manages subscriptions to various data streams (groups) related
+    to a specific trading account and forwards messages from those groups to the
+    client. It handles subscriptions for account-wide data, portfolio changes,
+    trade updates, and specific stock prices.
     """
 
     async def connect(self):
         """
         Handles a new WebSocket connection.
-        Authenticates the user, finds their trading account, and adds them
-        to relevant channels groups to receive real-time updates.
+
+        Authenticates the user from the scope, validates the requested account ID,
+        and adds the connection to the relevant Channels groups to receive
+        real-time updates.
         """
         self.user = self.scope["user"]
         if not self.user or not self.user.is_authenticated:
@@ -34,12 +39,10 @@ class DashboardConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
         
-        # Define group names
         self.group_name_account = f"account_{self.account.id}"
         self.group_name_portfolio = f"portfolio_{self.account.id}"
         self.group_name_trades = f"trades_{self.account.id}"
 
-        # Join relevant groups
         await self.channel_layer.group_add(self.group_name_account, self.channel_name)
         await self.channel_layer.group_add(self.group_name_portfolio, self.channel_name)
         await self.channel_layer.group_add(self.group_name_trades, self.channel_name)
@@ -47,16 +50,17 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         await self.accept()
         logger.info(f"User {self.user.username} connected to WebSocket for account {self.account.account_name}.")
         
-        # Optional: Send a confirmation message to the client
         await self.send_json_content({
             "type": "system_message",
-            "message": "실시간 서버에 연결되었습니다."
+            "message": "Connected to real-time server."
         })
 
     async def disconnect(self, close_code):
         """
         Handles a WebSocket disconnection.
-        Removes the user from all associated channels groups.
+
+        Removes the connection from all associated Channels groups to stop
+        sending messages.
         """
         if hasattr(self, 'group_name_account'):
             await self.channel_layer.group_discard(self.group_name_account, self.channel_name)
@@ -67,9 +71,13 @@ class DashboardConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         """
-        Receives messages from the client.
-        This can be used to manage subscriptions, e.g., subscribing to real-time
-        prices for a specific stock.
+        Receives messages from the client to manage subscriptions.
+
+        This method allows the client to dynamically subscribe to or unsubscribe
+        from real-time price updates for a specific stock symbol.
+
+        Args:
+            text_data (str): The JSON-encoded message from the client.
         """
         data = json.loads(text_data)
         message_type = data.get("type")
@@ -88,34 +96,50 @@ class DashboardConsumer(AsyncWebsocketConsumer):
                 await self.channel_layer.group_discard(f"stock_price_{symbol}", self.channel_name)
                 logger.info(f"User {self.user.username} unsubscribed from stock {symbol}.")
 
-    # Handler for messages sent to the 'account' group
     async def account_update(self, event):
+        """Handler for messages sent to the 'account' group."""
         await self.send_json_content(event["data"])
 
-    # Handler for messages sent to the 'portfolio' group
     async def portfolio_update(self, event):
+        """Handler for messages sent to the 'portfolio' group."""
         await self.send_json_content(event["data"])
 
-    # Handler for messages sent to the 'trades' group
     async def trade_update(self, event):
+        """Handler for messages sent to the 'trades' group."""
         await self.send_json_content(event["data"])
 
-    # Handler for messages sent to the 'stock_price' group
     async def stock_price_update(self, event):
+        """Handler for messages sent to a 'stock_price' group."""
         await self.send_json_content(event["data"])
         
     async def system_message(self, event):
+        """Handler for system messages."""
         await self.send_json_content(event["data"])
 
     async def send_json_content(self, content):
-        """Helper to send JSON data to the client."""
+        """
+        Helper method to serialize content to JSON and send to the client.
+
+        Args:
+            content (dict): The data to send.
+        """
         await self.send(text_data=json.dumps(content))
 
     @database_sync_to_async
     def get_trading_account(self, user: User, account_id: str):
         """
-        Fetches the trading account from the database asynchronously.
-        Ensures the account belongs to the logged-in user.
+        Fetches a trading account from the database asynchronously.
+
+        This method ensures that the requested account exists and belongs to the
+        currently authenticated user.
+
+        Args:
+            user (User): The authenticated user.
+            account_id (str): The ID of the account to fetch.
+
+        Returns:
+            TradingAccount | None: The account instance if found and authorized,
+                                  otherwise None.
         """
         try:
             return TradingAccount.objects.get(id=account_id, user=user)

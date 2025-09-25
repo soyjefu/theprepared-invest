@@ -9,7 +9,11 @@ from .serializers import PortfolioUpdateSerializer, LiquidateSerializer
 class PortfolioDetailAPIView(generics.RetrieveUpdateAPIView):
     """
     API view to retrieve or update a specific portfolio item.
-    Allows GET and PATCH requests.
+
+    Allows GET requests to retrieve the details of a portfolio item and
+    PATCH requests to update its mutable fields, such as 'stop_loss_price'
+    and 'target_price'. Ensures that users can only access their own
+    portfolio items.
     """
     serializer_class = PortfolioUpdateSerializer
     permission_classes = [IsAuthenticated]
@@ -17,7 +21,8 @@ class PortfolioDetailAPIView(generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         """
-        This view should only return portfolio items belonging to the current user.
+        Filters the queryset to only include portfolio items belonging to the
+        currently authenticated user.
         """
         return Portfolio.objects.filter(account__user=self.request.user)
 
@@ -27,13 +32,27 @@ from decimal import Decimal
 class LiquidateAPIView(APIView):
     """
     API view to handle the 'liquidate' action for a trading account.
+
+    This view provides a POST endpoint that allows a user to automatically
+    sell assets to reach a specified cash percentage in their account.
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request, account_id):
         """
-        Calculates the amount to sell to reach a target cash percentage
-        and places sell orders for profitable, short-term stocks.
+        Executes the liquidation process.
+
+        It calculates the total value of assets to sell based on the user's
+        `target_cash_percentage`. It then prioritizes selling profitable,
+        short-term stocks until the target is met.
+
+        Args:
+            request: The HttpRequest object, containing the target percentage.
+            account_id (int): The ID of the TradingAccount to liquidate.
+
+        Returns:
+            A Response object summarizing the actions taken, including the
+            total value sold and a list of placed orders.
         """
         account = get_object_or_404(TradingAccount, id=account_id, user=request.user)
         serializer = LiquidateSerializer(data=request.data)
@@ -49,7 +68,6 @@ class LiquidateAPIView(APIView):
             account_type=account.account_type
         )
 
-        # 1. Get current account balance and total value
         balance_res = client.get_account_balance()
         if not balance_res or not balance_res.is_ok():
             return Response({'error': 'Failed to get account balance.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -58,16 +76,12 @@ class LiquidateAPIView(APIView):
         total_assets = Decimal(balance_body.get('output2', [{}])[0].get('tot_evlu_amt', '0'))
         current_cash = Decimal(balance_body.get('output2', [{}])[0].get('dnca_tot_amt', '0'))
 
-        # 2. Calculate how much value needs to be sold
         target_cash_value = total_assets * (target_cash_percentage / Decimal(100))
         amount_to_sell = target_cash_value - current_cash
 
         if amount_to_sell <= 0:
             return Response({'message': 'Current cash percentage already meets or exceeds the target.'}, status=status.HTTP_200_OK)
 
-        # 3. Find suitable stocks to sell
-        # Priority: Profitable, short-term stocks.
-        # This requires knowing the current price. We will fetch it for each open position.
         open_positions = Portfolio.objects.filter(account=account, is_open=True, quantity__gt=0)
 
         sell_candidates = []
@@ -75,7 +89,7 @@ class LiquidateAPIView(APIView):
             price_res = client.get_current_price(pos.symbol)
             if price_res and price_res.is_ok():
                 current_price = Decimal(price_res.get_body().get('output', {}).get('stck_prpr', '0'))
-                if current_price > pos.average_buy_price: # It's profitable
+                if current_price > pos.average_buy_price:
                     profit_margin = (current_price - pos.average_buy_price) / pos.average_buy_price
                     sell_candidates.append({
                         'portfolio': pos,
@@ -83,13 +97,11 @@ class LiquidateAPIView(APIView):
                         'profit_margin': profit_margin
                     })
 
-        # Sort candidates by short-term first, then by highest profit margin
         sell_candidates.sort(key=lambda x: (
-            x['portfolio'].analyzedstock.investment_horizon != 'SHORT', # Puts 'SHORT' first
-            -x['profit_margin'] # Sorts by highest profit descending
+            x['portfolio'].analyzedstock.investment_horizon != 'SHORT',
+            -x['profit_margin']
         ))
 
-        # 4. Place sell orders
         sold_value = Decimal('0')
         orders_placed = []
         for candidate in sell_candidates:
@@ -99,7 +111,6 @@ class LiquidateAPIView(APIView):
             portfolio_item = candidate['portfolio']
             price_to_sell_at = int(candidate['current_price'])
 
-            # Determine how many shares to sell
             value_of_position = portfolio_item.quantity * price_to_sell_at
             remaining_to_sell = amount_to_sell - sold_value
 
@@ -142,7 +153,20 @@ class AIRecommendationAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        # We need a client to make API calls for market data
+        """
+        Handles GET requests to provide AI-driven market analysis.
+
+        This method uses the AI analysis service to determine the current
+        market trend (e.g., 'BULL', 'BEAR') and suggests a corresponding
+        capital allocation strategy across different investment horizons.
+
+        Args:
+            request: The HttpRequest object.
+
+        Returns:
+            A Response object containing the market trend and recommended
+            allocations.
+        """
         account = TradingAccount.objects.filter(user=request.user, is_active=True).first()
         if not account:
             return Response({'error': 'An active trading account is required for AI analysis.'}, status=status.HTTP_400_BAD_REQUEST)

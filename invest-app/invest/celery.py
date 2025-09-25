@@ -1,24 +1,39 @@
-# invest-app/invest/celery.py
+"""
+Celery application configuration for the invest project.
 
-# Numba Caching 버그 수정을 위한 Monkey Patch 적용
-# 이 import는 다른 라이브러리(예: pandas_ta)가 numba를 import하기 전에 실행되어야 합니다.
+This file configures the Celery instance for the project, allowing background
+tasks to be managed and executed. It sets up the Django settings as the
+source for Celery's configuration and automatically discovers task modules
+in all registered Django apps.
+"""
+
+# Apply a monkey patch to fix a Numba caching bug before any other
+# library (like pandas_ta) can import numba.
 import invest.numba_patch
 
 import os
 from celery import Celery
 
-# Django의 settings 모듈을 Celery의 기본 설정으로 사용합니다.
+# Set the default Django settings module for the 'celery' program.
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'invest.settings')
 
+# Create the Celery application instance.
 app = Celery('invest')
 
-# 'CELERY' 네임스페이스를 사용하여 Django 설정 파일에서 Celery 설정을 로드합니다.
-# 예: CELERY_BROKER_URL
+# Load Celery configuration from Django settings, using a 'CELERY' namespace.
+# This means all Celery settings in settings.py should be prefixed with 'CELERY_'.
+# Example: CELERY_BROKER_URL
 app.config_from_object('django.conf:settings', namespace='CELERY')
 
-# Django 앱 설정에서 task를 자동으로 찾습니다.
+# Automatically discover and load task modules from all registered Django apps.
+# Celery will look for a 'tasks.py' file in each app.
 app.autodiscover_tasks()
 
 @app.task(bind=True, ignore_result=True)
 def debug_task(self):
+    """
+    A sample task for debugging purposes.
+
+    Prints the request information of the task itself to the Celery worker's console.
+    """
     print(f'Request: {self.request!r}')
