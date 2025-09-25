@@ -1,4 +1,6 @@
 import logging
+import time
+from decimal import Decimal
 from trading.kis_client import KISApiClient
 from trading.models import TradingAccount, AnalyzedStock
 from .filters import is_financially_sound, is_blue_chip
@@ -38,49 +40,69 @@ class UniverseScreener:
             logger.error(f"KISApiClient 초기화 중 에러 발생: {e}")
             raise
 
-    def screen_all_stocks(self):
+    def screen_all_stocks(self, api_delay=0.5):
         """
         전체 종목을 대상으로 스크리닝을 실행하고 결과를 DB에 저장합니다.
+        API 호출 제한을 피하기 위해 각 종목 처리 후 지연 시간을 둡니다.
         """
         logger.info("전체 종목 스크리닝을 시작합니다.")
 
-        # 1. 전체 종목 코드 가져오기 (API 또는 로컬 파일)
-        # 참고: get_all_stock_codes는 .mst 파일에 의존하므로, API 기반의 다른 방법이 더 안정적일 수 있습니다.
-        # 여기서는 예시로 `get_top_volume_stocks`를 사용하지만, 실제로는
-        # KIS에서 제공하는 전체 종목 리스트 API를 사용해야 합니다. (예: FHPST01740000 - 시가총액 순위)
-        # 지금은 기능 구현을 위해 거래량 상위 200개 종목으로 제한하여 테스트합니다.
-        kospi_stocks = self.client.get_top_volume_stocks(market='KOSPI', top_n=100)
-        kosdaq_stocks = self.client.get_top_volume_stocks(market='KOSDAQ', top_n=100)
-        all_symbols = list(set(kospi_stocks + kosdaq_stocks))
+        # 1. 전체 종목 코드 가져오기 (로컬 .mst 파일 사용)
+        all_stocks_map = self.client.get_all_stock_codes()
+        if not all_stocks_map:
+            logger.error("스크리닝을 위한 종목 코드를 가져오지 못했습니다. .mst 파일 설정을 확인하세요.")
+            return 0
+        all_symbols = list(all_stocks_map.keys())
 
         logger.info(f"총 {len(all_symbols)}개의 종목을 대상으로 스크리닝을 진행합니다.")
 
         screened_count = 0
-        for symbol in all_symbols:
+        for i, symbol in enumerate(all_symbols):
             try:
+                # API 호출 지연
+                time.sleep(api_delay)
+
                 # 2. 필요한 데이터 수집
+                # get_stock_info가 가장 많은 정보를 주므로 먼저 호출
+                info_res = self.client.get_stock_info(symbol)
+                if not (info_res and info_res.is_ok()):
+                    logger.debug(f"[{symbol}] 기본 정보 수집 실패. 건너뜁니다.")
+                    continue
+                stock_info = info_res.get_body().get('output', {})
+
                 price_res = self.client.get_current_price(symbol)
                 fin_res = self.client.get_financial_info(symbol)
-                info_res = self.client.get_stock_info(symbol)
+                history_res = self.client.get_daily_price_history(symbol, days=30) # 20일 평균 거래대금 계산용
 
-                if not (price_res and price_res.is_ok() and fin_res and fin_res.is_ok() and info_res and info_res.is_ok()):
-                    logger.warning(f"[{symbol}] 데이터 수집 실패. 건너뜁니다.")
+                if not (price_res and price_res.is_ok() and fin_res and fin_res.is_ok() and history_res and history_res.is_ok()):
+                    logger.warning(f"[{symbol}] 추가 데이터(가격/재무/히스토리) 수집 실패. 건너뜁니다.")
                     continue
 
                 price_data = price_res.get_body().get('output', {})
                 financial_data = fin_res.get_body().get('output', [])
-                stock_info = info_res.get_body().get('output', {})
+                history_data = history_res.get_body().get('output2', [])
 
                 # 3. 필터링에 필요한 데이터 가공
+                # 20일 평균 거래대금 계산
+                if len(history_data) >= 20:
+                    avg_20d_turnover = sum(int(d['acml_tr_pbmn']) for d in history_data[-20:]) / 20
+                else:
+                    avg_20d_turnover = 0 # 데이터 부족 시 0으로 처리
+
+                # 시가총액 계산
+                listed_shares = int(stock_info.get('stck_iss_cnt', '0'))
+                current_price = int(price_data.get('stck_prpr', '0'))
+                market_cap = listed_shares * current_price
+
                 stock_details = {
                     'symbol': symbol,
-                    'stock_name': stock_info.get('prdt_abrv_name'),
-                    'avg_20d_turnover': int(price_data.get('acml_tr_pbmn', '0')), # 20일 평균 대신 누적 거래대금으로 대체
-                    'market_cap': int(price_data.get('hbid_uplmt_price', '0')) * int(price_data.get('stck_prpr', '0')), # 시총 임시 계산
-                    'sector_code': stock_info.get('bstp_larg_div_code'), # KRX 업종 대분류 코드
+                    'stock_name': stock_info.get('prdt_abrv_name', all_stocks_map.get(symbol, '')),
+                    'avg_20d_turnover': avg_20d_turnover,
+                    'market_cap': market_cap,
+                    'sector_code': stock_info.get('bstp_larg_div_code'),
                     'is_admin_issue': price_data.get('admd_item_yn', 'N') == 'Y',
-                    'is_investment_alert': price_data.get('invt_alrm_yn', 'N') == 'Y',
-                    'is_capital_impaired': False, # 이 정보는 별도 API 필요
+                    'is_investment_alert': any(price_data.get(key, 'N') == 'Y' for key in ['invt_alrm_yn', 'invt_atn_yn', 'invt_dngr_yn']),
+                    'is_capital_impaired': stock_info.get('cpta_eros_yn', 'N') == 'Y',
                 }
 
                 # 4. 필터링 로직 실행
