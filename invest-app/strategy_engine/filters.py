@@ -109,16 +109,27 @@ def is_blue_chip(stock_details, financial_data):
             return False, f"3년 평균 영업이익률 미달 ({avg_op_margin:.2f}%)"
 
         # 성장성 (3년 연평균)
-        # 데이터는 최신순으로 정렬되어 있다고 가정 (financial_data[0]이 가장 최신)
-        sales_data = [d.get('sales') for d in financial_data[:4]] # 3년 CAGR 계산을 위해 4개년 데이터 필요
-        eps_data = [d.get('eps') for d in financial_data[:4]]
+        if len(financial_data) < 4: # 3년 CAGR 계산을 위해 최소 4개년 데이터 필요
+            return False, "4년치 재무 데이터 부족 (CAGR 계산 불가)"
 
-        # 데이터가 역순(과거->최신)으로 되어 있으므로 뒤집어줌
-        sales_data.reverse()
-        eps_data.reverse()
+        # 'bz_yy' (사업년도)를 기준으로 데이터를 오름차순(과거 -> 최신)으로 정렬
+        try:
+            sorted_financials = sorted(financial_data, key=lambda x: int(x['bz_yy']))
+        except (KeyError, ValueError):
+            return False, "재무 데이터 연도 정보 오류"
 
-        sales_cagr = _calculate_cagr(sales_data[-1], sales_data[0], 3) * 100
-        eps_cagr = _calculate_cagr(eps_data[-1], eps_data[0], 3) * 100
+        # 3년 전 데이터와 최신 데이터 추출
+        start_data = sorted_financials[-4] # 3년 전 데이터 (N-3)
+        end_data = sorted_financials[-1]   # 최신 데이터 (N)
+
+        start_sales = Decimal(start_data.get('sales', '0'))
+        end_sales = Decimal(end_data.get('sales', '0'))
+        start_eps = Decimal(start_data.get('eps', '0'))
+        end_eps = Decimal(end_data.get('eps', '0'))
+
+        # CAGR 계산
+        sales_cagr = _calculate_cagr(end_sales, start_sales, 3) * 100
+        eps_cagr = _calculate_cagr(end_eps, start_eps, 3) * 100
 
         if sales_cagr < 5:
             return False, f"3년 연평균 매출 성장률 미달 ({sales_cagr:.2f}%)"

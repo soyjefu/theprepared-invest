@@ -124,9 +124,9 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'trading.tasks.analyze_stocks_task',
         'schedule': crontab(hour=8, minute=55, day_of_week='1-5'),
     },
-    # Stage 3: Execute AI-based trades at 9:05 AM KST (Mon-Fri)
-    'execute-trades-daily': {
-        'task': 'trading.tasks.execute_ai_trades_task',
+    # Stage 3: Execute main trading logic at 9:05 AM KST (Mon-Fri)
+    'run-daily-trading': {
+        'task': 'trading.tasks.run_daily_trader_task',
         'schedule': crontab(hour=9, minute=5, day_of_week='1-5'),
     },
     # Monitor open positions every minute during market hours (9 AM - 3:30 PM KST, Mon-Fri)
@@ -162,6 +162,7 @@ RISK_PER_TRADE = 0.01  # 개별 종목 최대 리스크 비율 (1%)
 MAX_TOTAL_RISK = 0.10  # 포트폴리오 최대 총 리스크 비율 (10%)
 
 # 우량주 분할매수 모드: 동적 분할 매수 (Dynamic DCA)
+DCA_BASE_AMOUNT = 100000  # 분할매수 기본 투자 금액 (1회당)
 DYNAMIC_DCA_SETTINGS = {
     'KOSPI_MA_PERIOD': 120,  # 코스피 이동평균선 기준일
     'TRIGGERS': [

@@ -464,6 +464,33 @@ async def handle_stream_message(message, channel_layer, client):
             logger.error(f"Error processing execution report from stream: {e}", exc_info=True)
 
 
+from .trading_service import DailyTrader
+
+@shared_task
+def run_daily_trader_task():
+    """
+    Celery task to run the main daily trading logic for all active accounts.
+    This task determines the market mode, manages open positions (sells),
+    and executes new buys based on the defined strategies.
+    """
+    logger.info("Celery Task: Starting daily trading logic execution.")
+
+    active_accounts = TradingAccount.objects.filter(is_active=True)
+    if not active_accounts:
+        logger.warning("No active trading accounts found. Skipping daily trading.")
+        return
+
+    for account in active_accounts:
+        try:
+            logger.info(f"Running daily trader for account: {account.account_number}")
+            trader = DailyTrader(user=account.user, account_number=account.account_number)
+            trader.run_daily_trading()
+        except Exception as e:
+            logger.error(f"An error occurred while running daily trader for account {account.account_number}: {e}", exc_info=True)
+
+    logger.info("Celery Task: Daily trading logic execution finished for all active accounts.")
+
+
 @shared_task
 def rebalance_portfolio_task():
     """
