@@ -8,4 +8,7 @@ urlpatterns = [
 
     # Include all URLs from the 'trading' app
     path('', include('trading.urls')),
+
+    # Include all URLs from the 'strategy_engine' app
+    path('strategy/', include('strategy_engine.urls')),
 ]
