@@ -50,3 +50,31 @@ class TechnicalAnalysisTest(TestCase):
 
         # Assert that the function's output is no longer the incorrect, unadjusted value
         self.assertNotEqual(atr_from_function, incorrect_atr)
+
+
+from .filters import determine_market_mode
+
+class MarketModeTest(TestCase):
+    def test_determine_market_mode(self):
+        """
+        Tests that determine_market_mode works correctly.
+        """
+        # 1. Simulate KOSPI data where the close is below the 60-day MA
+        history_dca = []
+        for i in range(70):
+            price = 100 - i
+            history_dca.append({'stck_clpr': str(price)})
+
+        # 2. Simulate KOSPI data where the close is above the 60-day MA
+        history_trading = []
+        for i in range(70):
+            price = 50 + i
+            history_trading.append({'stck_clpr': str(price)})
+
+        # 3. Call the function with both datasets
+        mode_dca = determine_market_mode(history_dca)
+        mode_trading = determine_market_mode(history_trading)
+
+        # 4. Assert the correct modes are returned
+        self.assertEqual(mode_dca, '우량주 분할매수 모드')
+        self.assertEqual(mode_trading, '단기 트레이딩 모드')
