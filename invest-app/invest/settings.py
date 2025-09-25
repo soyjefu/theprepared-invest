@@ -124,9 +124,9 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'trading.tasks.analyze_stocks_task',
         'schedule': crontab(hour=8, minute=55, day_of_week='1-5'),
     },
-    # Stage 3: Execute AI-based trades at 9:05 AM KST (Mon-Fri)
-    'execute-trades-daily': {
-        'task': 'trading.tasks.execute_ai_trades_task',
+    # Stage 3: Execute main trading logic at 9:05 AM KST (Mon-Fri)
+    'run-daily-trading': {
+        'task': 'trading.tasks.run_daily_trader_task',
         'schedule': crontab(hour=9, minute=5, day_of_week='1-5'),
     },
     # Monitor open positions every minute during market hours (9 AM - 3:30 PM KST, Mon-Fri)
@@ -151,3 +151,24 @@ if 'test' in sys.argv:
             "BACKEND": "channels.layers.InMemoryChannelLayer"
         }
     }
+
+# --- TRADING STRATEGY SETTINGS ---
+# 수수료 및 세금 (소수점 형태로 표현)
+TRADING_FEE_RATE = 0.00015  # 매매 수수료 0.015%
+TRADING_TAX_RATE = 0.0020   # 증권거래세 0.20% (매도 시 적용)
+
+# 단기 트레이딩 모드: 2단계 리스크 관리 시스템
+RISK_PER_TRADE = 0.01  # 개별 종목 최대 리스크 비율 (1%)
+MAX_TOTAL_RISK = 0.10  # 포트폴리오 최대 총 리스크 비율 (10%)
+
+# 우량주 분할매수 모드: 동적 분할 매수 (Dynamic DCA)
+DCA_BASE_AMOUNT = 100000  # 분할매수 기본 투자 금액 (1회당)
+DYNAMIC_DCA_SETTINGS = {
+    'KOSPI_MA_PERIOD': 120,  # 코스피 이동평균선 기준일
+    'TRIGGERS': [
+        # (하락률, 매수 배율)
+        {'fall_rate': 0.05, 'multiplier': 2.0}, # 5% 이상 하락 시 2배 매수
+        {'fall_rate': 0.10, 'multiplier': 3.0}, # 10% 이상 하락 시 3배 매수
+        {'fall_rate': 0.15, 'multiplier': 4.0}, # 15% 이상 하락 시 4배 매수
+    ]
+}

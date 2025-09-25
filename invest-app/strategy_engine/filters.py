@@ -7,6 +7,12 @@ logger = logging.getLogger(__name__)
 # 금융업 등 특정 업종은 부채비율 기준에서 제외하기 위한 목록
 FINANCE_SECTOR_CODES = ['64', '65', '66']  # 예: 은행 및 저축기관, 보험, 증권 등 (KRX 업종 분류 기준)
 
+def _calculate_cagr(end_value, start_value, years):
+    """연평균 성장률(CAGR)을 계산합니다."""
+    if start_value is None or end_value is None or start_value <= 0 or end_value <= 0 or years <= 0:
+        return Decimal('0')
+    return (Decimal(end_value) / Decimal(start_value)) ** (Decimal('1') / Decimal(years)) - Decimal('1')
+
 def is_financially_sound(stock_details, financial_data):
     """
     '일반' 종목 선정을 위한 기본 재무/시장 건전성을 검사합니다.
@@ -17,9 +23,11 @@ def is_financially_sound(stock_details, financial_data):
     - 이자보상배율 3배 이상
     - ROE 5% 이상
     - 최근 3년 중 2년 이상 영업이익 흑자
-    - 관리종목, 투자경고/위험, 자본잠식 등 제외
+    - 관리종목, 투자경고/위험, 자본잠식, 스팩, 지주사 등 제외
     """
     try:
+        stock_name = stock_details.get('stock_name', '')
+
         # 시장 조건
         if stock_details.get('avg_20d_turnover', 0) < 5_000_000_000:
             return False, "거래대금 미달"
@@ -31,6 +39,9 @@ def is_financially_sound(stock_details, financial_data):
            stock_details.get('is_investment_alert', False) or \
            stock_details.get('is_capital_impaired', False):
             return False, "관리/경고 종목 또는 자본잠식"
+        if '스팩' in stock_name or '지주' in stock_name:
+            return False, "스팩 또는 지주사 제외"
+
 
         # 재무 건전성 (최신 재무 데이터 기준)
         latest_financials = financial_data[0] if financial_data else {}
@@ -98,16 +109,35 @@ def is_blue_chip(stock_details, financial_data):
             return False, f"3년 평균 영업이익률 미달 ({avg_op_margin:.2f}%)"
 
         # 성장성 (3년 연평균)
-        sales_gpr = Decimal(financial_data[0].get('sales_growth_yoy', '0'))
-        eps_gpr = Decimal(financial_data[0].get('eps_growth_yoy', '0'))
-        # KIS API가 연평균 성장률(CAGR)을 직접 제공하지 않으므로, 여기서는 전년 대비 성장률(YoY)을 기준으로 근사치를 사용합니다.
-        # 정확한 CAGR 계산을 위해서는 3년 전 데이터가 필요하며, 로직 보강이 필요할 수 있습니다.
-        if sales_gpr < 5:
-            return False, f"매출액 성장률 미달 ({sales_gpr:.2f}%)"
-        if eps_gpr < 5:
-            return False, f"EPS 성장률 미달 ({eps_gpr:.2f}%)"
+        if len(financial_data) < 4: # 3년 CAGR 계산을 위해 최소 4개년 데이터 필요
+            return False, "4년치 재무 데이터 부족 (CAGR 계산 불가)"
+
+        # 'bz_yy' (사업년도)를 기준으로 데이터를 오름차순(과거 -> 최신)으로 정렬
+        try:
+            sorted_financials = sorted(financial_data, key=lambda x: int(x['bz_yy']))
+        except (KeyError, ValueError):
+            return False, "재무 데이터 연도 정보 오류"
+
+        # 3년 전 데이터와 최신 데이터 추출
+        start_data = sorted_financials[-4] # 3년 전 데이터 (N-3)
+        end_data = sorted_financials[-1]   # 최신 데이터 (N)
+
+        start_sales = Decimal(start_data.get('sales', '0'))
+        end_sales = Decimal(end_data.get('sales', '0'))
+        start_eps = Decimal(start_data.get('eps', '0'))
+        end_eps = Decimal(end_data.get('eps', '0'))
+
+        # CAGR 계산
+        sales_cagr = _calculate_cagr(end_sales, start_sales, 3) * 100
+        eps_cagr = _calculate_cagr(end_eps, start_eps, 3) * 100
+
+        if sales_cagr < 5:
+            return False, f"3년 연평균 매출 성장률 미달 ({sales_cagr:.2f}%)"
+        if eps_cagr < 5:
+            return False, f"3년 연평균 EPS 성장률 미달 ({eps_cagr:.2f}%)"
 
         # 주주환원
+        # 3년 연속 배당이므로 최신 3개년 데이터 확인
         has_dividend_3yrs = all(Decimal(d.get('dividend_per_share', '0')) > 0 for d in financial_data[:3])
         if not has_dividend_3yrs:
             return False, "3년 연속 배당 미실시"

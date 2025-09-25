@@ -268,7 +268,7 @@ class KISApiClient:
         params = { "FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol }
         return self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
 
-    def place_order(self, account: TradingAccount, symbol: str, quantity: int, price: int, order_type: str, order_division="00"):
+    def place_order(self, account: TradingAccount, symbol: str, quantity: int, price: int, order_type: str, order_division="00", fee_rate=0.00015):
         """
         Places a buy or sell order after performing server-side validation.
 
@@ -279,6 +279,7 @@ class KISApiClient:
             price: The price per share.
             order_type: 'BUY' or 'SELL'.
             order_division: The order type code (e.g., "00" for limit order).
+            fee_rate (float): The transaction fee rate.
 
         Returns:
             A dictionary with the API response or an error message.
@@ -302,9 +303,11 @@ class KISApiClient:
 
         if order_type.upper() == 'BUY':
             cash_available = Decimal(balance_body.get('output2', [{}])[0].get('dnca_tot_amt', '0'))
-            order_total = Decimal(quantity) * Decimal(price)
-            if cash_available < order_total:
-                msg = f"Insufficient funds to place buy order for {symbol}. Required: {order_total}, Available: {cash_available}"
+            order_amount = Decimal(quantity) * Decimal(price)
+            order_total_with_fee = order_amount * (Decimal('1') + Decimal(str(fee_rate)))
+
+            if cash_available < order_total_with_fee:
+                msg = f"Insufficient funds to place buy order for {symbol}. Required (incl. fee): {order_total_with_fee:.2f}, Available: {cash_available}"
                 logger.warning(msg)
                 return {'rt_cd': '99', 'msg1': msg, 'is_validation_error': True}
 
