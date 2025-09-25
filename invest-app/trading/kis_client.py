@@ -613,7 +613,7 @@ class KISApiClient:
         path = "/oauth2/Approval"
         url = f"{self.base_url}{path}"
         headers = {"content-type": "application/json"}
-        body = {"grant_type": "client_credentials", "appkey": self.app_key, "secretkey": self.app_secret}
+        body = {"grant_type": "client_credentials", "appkey": self.app_key, "appsecret": self.app_secret}
 
         response = requests.post(url, headers=headers, data=json.dumps(body))
 
