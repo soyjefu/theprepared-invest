@@ -1,5 +1,6 @@
 # invest-app/trading/models.py
 from django.db import models
+from django.db.models import Q
 from django.contrib.auth.models import User
 
 class TradingAccount(models.Model):
@@ -109,7 +110,13 @@ class Portfolio(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        unique_together = ('account', 'symbol', 'is_open')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['account', 'symbol'],
+                condition=models.Q(is_open=True),
+                name='unique_open_position_per_account'
+            )
+        ]
 
     def __str__(self):
         status = "OPEN" if self.is_open else "CLOSED"
