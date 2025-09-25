@@ -34,7 +34,7 @@ def calculate_atr(daily_price_history: list, period: int = 14) -> float:
         df['tr'] = df[['tr1', 'tr2', 'tr3']].max(axis=1)
 
         # ATR 계산 (Exponential Moving Average 사용)
-        df['atr'] = df['tr'].ewm(alpha=1/period, adjust=False).mean()
+        df['atr'] = df['tr'].ewm(alpha=1/period, adjust=True).mean()
 
         # 최신 ATR 값 반환
         latest_atr = df['atr'].iloc[-1]
