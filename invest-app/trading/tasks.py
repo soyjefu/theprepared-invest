@@ -62,19 +62,3 @@ def run_daily_trader_task():
 # The following tasks are kept as placeholders to prevent Celery Beat from
 # crashing if old schedules are still present in the database.
 # They should be removed once the Celery Beat schedule is confirmed to be clean.
-
-@shared_task
-def run_daily_morning_routine():
-    logger.warning("Deprecated task 'run_daily_morning_routine' was called. Please use 'run_stock_screening_task' instead.")
-
-@shared_task
-def analyze_stocks_task():
-    logger.warning("Deprecated task 'analyze_stocks_task' was called. This logic is now part of the screening and trading services.")
-
-@shared_task
-def execute_ai_trades_task():
-    logger.warning("Deprecated task 'execute_ai_trades_task' was called. Please use 'run_daily_trader_task' instead.")
-
-@shared_task
-def monitor_open_positions_task():
-    logger.warning("Deprecated task 'monitor_open_positions_task' was called. This logic is now part of the DailyTrader service.")

@@ -15,11 +15,8 @@ urlpatterns = [
     path('settings/', views.strategy_settings_view, name='strategy_settings'),
     path('system/', views.system_management, name='system_management'),
 
-    # Endpoints to trigger and monitor Celery tasks
+    # Endpoint to trigger Celery tasks
     path('screening/run/', views.trigger_stock_screening, name='run_screening'),
-    path('screening/status/', views.get_screening_status, name='get_screening_status'),
-    path('analysis/run/', views.trigger_stock_analysis, name='run_analysis'),
-    path('analysis/status/', views.get_analysis_status, name='get_analysis_status'),
 
     # API endpoints
     path('api/', include('trading.api_urls', namespace='trading_api')),
