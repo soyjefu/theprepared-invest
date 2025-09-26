@@ -187,3 +187,46 @@ class AIRecommendationAPIView(APIView):
         }
 
         return Response(response_data, status=status.HTTP_200_OK)
+
+class SellPositionAPIView(APIView):
+    """
+    API view to sell an entire position for a given portfolio item.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """
+        Executes the sell order for the entire quantity of a portfolio item.
+        """
+        portfolio_item = get_object_or_404(Portfolio, pk=pk, account__user=request.user, is_open=True)
+        account = portfolio_item.account
+
+        client = KISApiClient(
+            app_key=account.app_key,
+            app_secret=account.app_secret,
+            account_no=account.account_number,
+            account_type=account.account_type
+        )
+
+        price_res = client.get_current_price(portfolio_item.symbol)
+        if not price_res or not price_res.is_ok():
+            return Response({'error': f"Failed to get current price for {portfolio_item.stock_name}."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        current_price = int(price_res.get_body().get('output', {}).get('stck_prpr', '0'))
+
+        if portfolio_item.quantity > 0:
+            order_response = client.place_order(
+                account=account,
+                symbol=portfolio_item.symbol,
+                quantity=portfolio_item.quantity,
+                price=current_price,
+                order_type='SELL'
+            )
+
+            if order_response and order_response.get('rt_cd') == '0':
+                return Response({'message': f"Sell order for {portfolio_item.stock_name} placed successfully."}, status=status.HTTP_200_OK)
+            else:
+                error_msg = order_response.get('msg1', 'Unknown error')
+                return Response({'error': f"Failed to place sell order: {error_msg}"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({'error': "No quantity to sell."}, status=status.HTTP_400_BAD_REQUEST)

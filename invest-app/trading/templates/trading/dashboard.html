@@ -1,132 +1,203 @@
-{% extends "trading/_base.html" %}
+{% extends "trading/base.html" %}
 {% load humanize %}
 
-{% block title %}계좌 현황 - Trading Dashboard{% endblock %}
+{% block title %}대시보드{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="market-mode-summary" style="padding: 1em; margin-bottom: 1.5em; border: 1px solid #ddd; border-left-width: 5px; border-left-color: {% if '우량주' in market_mode %}#5bc0de;{% else %}#f0ad4e;{% endif %}">
-        <h4 style="margin: 0;">현재 시장 모드: <span style="font-weight: bold;">{{ market_mode }}</span></h4>
+<div class="space-y-8">
+    <!-- 헤더 -->
+    <div>
+        <h1 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">대시보드</h1>
+        <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            현재 시장 모드: <span class="font-semibold text-primary-600 dark:text-primary-400">{{ market_mode }}</span>
+        </p>
     </div>
-    <h2>계좌 종합 현황</h2>
-    {% for detail in account_details %}
-        <div class="account-summary" style="margin-bottom: 2em;">
-            <h3>{{ detail.account.account_name }} ({{ detail.account.account_number }})</h3>
-            {% if detail.error %}
-                <p class="error">{{ detail.error }}</p>
-            {% elif detail.balance_summary %}
-                <table>
-                    <tr>
-                        <th>총 평가금액</th><td class="number">{{ detail.balance_summary.tot_evlu_amt|intcomma }} 원</td>
-                        <th>예수금</th><td class="number">{{ detail.balance_summary.dnca_tot_amt|intcomma }} 원</td>
-                    </tr>
-                    <tr>
-                        <th>총 평가손익률</th><td class="number {% if detail.balance_summary.tot_pftrt|floatformat > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ detail.balance_summary.tot_pftrt|floatformat:"2" }}%</td>
-                        <th>총 평가손익</th><td class="number">{{ detail.balance_summary.tot_pfls_amt|intcomma }} 원</td>
-                    </tr>
-                </table>
 
-                <h4 style="margin-top: 1.5em;">보유 종목 (요약)</h4>
-                {% if detail.positions %}
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>종목명</th>
-                                <th class="number">보유수량</th>
-                                <th class="number">평가금액</th>
-                                <th class="number">수익률(%)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="positions-{{ detail.account.id }}">
-                        {% for pos in detail.positions %}
-                            <tr id="pos-{{ detail.account.id }}-{{ pos.symbol }}" data-avg-price="{{ pos.average_buy_price }}" data-quantity="{{ pos.quantity }}">
-                                <td>{{ pos.stock_name }} ({{ pos.symbol }})</td>
-                                <td class="number hldg_qty">{{ pos.quantity|intcomma }}</td>
-                                <td class="number evlu_amt">{{ pos.evlu_amt|intcomma }}</td>
-                                <td class="number evlu_pfls_rt {% if pos.evlu_pfls_rt > 0 %}pl-positive{% else %}pl-negative{% endif %}">{{ pos.evlu_pfls_rt|floatformat:"2" }}</td>
-                            </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                {% else %}
-                    <p>보유 종목이 없습니다.</p>
+    <!-- 총 자산 카드 -->
+    <div class="bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6">
+        <h2 class="text-lg font-medium text-gray-500 dark:text-gray-400">총 평가 자산</h2>
+        <p id="grand-total-assets" class="mt-1 text-4xl font-bold text-gray-900 dark:text-white">
+            ₩ {{ grand_total_assets|intcomma }}
+        </p>
+    </div>
+
+    <!-- 계좌별 상세 정보 -->
+    {% if account_details %}
+        <div class="space-y-6">
+            {% for detail in account_details %}
+            <div id="account-card-{{ detail.account.id }}" class="account-card bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden" data-account-id="{{ detail.account.id }}">
+                <div class="p-5 border-b border-gray-200 dark:border-gray-700">
+                    <h3 class="text-xl font-semibold text-gray-900 dark:text-white">{{ detail.account.account_name }} ({{ detail.account.account_number }})</h3>
+                    {% if detail.error %}
+                        <div class="mt-2 text-sm text-red-500 bg-red-100 dark:bg-red-900 dark:text-red-300 p-3 rounded-md">
+                            <strong>에러:</strong> {{ detail.error }}
+                        </div>
+                    {% endif %}
+                </div>
+
+                {% if detail.balance_summary %}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 p-5">
+                    <div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">예수금</p>
+                        <p id="balance-dnca-{{ detail.account.id }}" class="text-lg font-semibold dark:text-white">₩ {{ detail.balance_summary.dnca_tot_amt|intcomma }}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">총 매입 금액</p>
+                        <p id="balance-pchs-{{ detail.account.id }}" class="text-lg font-semibold dark:text-white">₩ {{ detail.balance_summary.tot_pchs_amt|intcomma }}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">총 평가 금액</p>
+                        <p id="balance-evlu-{{ detail.account.id }}" class="text-lg font-semibold dark:text-white">₩ {{ detail.balance_summary.tot_evlu_amt|intcomma }}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">추정 총 수익률</p>
+                        <p id="balance-pfls-{{ detail.account.id }}" class="text-lg font-semibold {% if detail.balance_summary.evlu_pfls_rt > 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                            {{ detail.balance_summary.evlu_pfls_rt|floatformat:2 }}%
+                        </p>
+                    </div>
+                </div>
                 {% endif %}
-            {% endif %}
+
+                {% if detail.positions %}
+                <div class="px-5 pb-5">
+                    <h4 class="text-md font-semibold mb-2 dark:text-white">보유 종목</h4>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-700">
+                                <tr>
+                                    <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">종목명</th>
+                                    <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">보유수량</th>
+                                    <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">평균단가</th>
+                                    <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">현재가</th>
+                                    <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">평가금액</th>
+                                    <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">수익률</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                {% for pos in detail.positions %}
+                                <tr id="stock-{{ detail.account.id }}-{{ pos.symbol }}" data-symbol="{{ pos.symbol }}">
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{{ pos.stock_name }}</td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right">{{ pos.quantity|intcomma }}</td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm text-right">₩ {{ pos.average_buy_price|intcomma }}</td>
+                                    <td id="price-{{ detail.account.id }}-{{ pos.symbol }}" class="px-4 py-3 whitespace-nowrap text-sm text-right">₩ {{ pos.current_price|intcomma }}</td>
+                                    <td id="eval-{{ detail.account.id }}-{{ pos.symbol }}" class="px-4 py-3 whitespace-nowrap text-sm text-right">₩ {{ pos.evlu_amt|intcomma }}</td>
+                                    <td id="pl-{{ detail.account.id }}-{{ pos.symbol }}" class="px-4 py-3 whitespace-nowrap text-sm text-right {% if pos.evlu_pfls_rt > 0 %}text-green-500{% elif pos.evlu_pfls_rt < 0 %}text-red-500{% endif %}">
+                                        {{ pos.evlu_pfls_rt|floatformat:2 }}%
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% else %}
+                <div class="px-5 pb-5 text-sm text-gray-500 dark:text-gray-400">
+                    보유중인 종목이 없습니다.
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
         </div>
-        {% if not forloop.last %}<hr style="border: 0; border-top: 1px solid #eee; margin: 2em 0;">{% endif %}
-    {% empty %}
-        <p>활성화된 계좌가 없습니다. 관리자 페이지에서 계좌를 추가해주세요.</p>
-    {% endfor %}
+    {% else %}
+        <div class="text-center py-10 bg-white dark:bg-gray-800 rounded-lg shadow">
+            <p class="text-gray-500 dark:text-gray-400">활성화된 투자 계좌가 없습니다.</p>
+            <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">시스템 관리 메뉴에서 계좌를 추가해주세요.</p>
+        </div>
+    {% endif %}
 </div>
 {% endblock %}
 
-{% block extra_scripts %}
+{% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // This overrides the placeholder function in _base.html
-    window.handlePriceUpdate = function(data) {
-        const symbol = data.symbol;
-        const newPrice = parseFloat(data.price);
+document.addEventListener('DOMContentLoaded', function () {
+    const accountCards = document.querySelectorAll('.account-card');
 
-        // Find all rows for this symbol (could be in multiple accounts)
-        const rows = document.querySelectorAll(`tr[id$="-${symbol}"]`);
+    accountCards.forEach(card => {
+        const accountId = card.dataset.accountId;
+        if (!accountId) return;
 
-        rows.forEach(row => {
-            const avgPrice = parseFloat(row.dataset.avgPrice);
-            const quantity = parseInt(row.dataset.quantity);
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socket = new WebSocket(
+            `${protocol}//${window.location.host}/ws/trade/${accountId}/`
+        );
 
-            if (!avgPrice || !quantity) return;
+        socket.onopen = function (e) {
+            console.log(`WebSocket connection established for account ${accountId}`);
+            const stockRows = card.querySelectorAll('[data-symbol]');
+            stockRows.forEach(row => {
+                const symbol = row.dataset.symbol;
+                if (symbol) {
+                    socket.send(JSON.stringify({
+                        'type': 'subscribe_stock',
+                        'symbol': symbol
+                    }));
+                }
+            });
+        };
 
-            const evluAmtCell = row.querySelector('.evlu_amt');
-            const pflsRtCell = row.querySelector('.evlu_pfls_rt');
+        socket.onmessage = function (e) {
+            const data = JSON.parse(e.data);
+            console.log(`Data received for account ${accountId}:`, data);
 
-            // Calculate new values
-            const newEvluAmt = newPrice * quantity;
-            const newPflsRt = avgPrice > 0 ? ((newPrice / avgPrice) - 1) * 100 : 0;
-
-            // Update cell content
-            evluAmtCell.innerText = newEvluAmt.toLocaleString();
-            pflsRtCell.innerText = newPflsRt.toFixed(2);
-
-            // Update cell style
-            pflsRtCell.classList.remove('pl-positive', 'pl-negative');
-            if (newPflsRt > 0) {
-                pflsRtCell.classList.add('pl-positive');
-            } else {
-                pflsRtCell.classList.add('pl-negative');
+            if (data.type === 'stock_price_update') {
+                updateStockPrice(accountId, data);
+            } else if (data.type === 'account_update') {
+                updateAccountSummary(accountId, data);
             }
+        };
 
-            // Optional: add a subtle flash effect to highlight the change
-            row.style.transition = 'background-color 0.1s ease-in-out';
-            row.style.backgroundColor = '#e8f4fd';
-            setTimeout(() => {
-                row.style.backgroundColor = '';
-            }, 500);
-        });
-    };
+        socket.onclose = function (e) {
+            console.error(`WebSocket for account ${accountId} closed unexpectedly.`);
+        };
 
-    // When the socket is ready, subscribe to all visible symbols
-    const originalOnOpen = window.tradingSocket.onopen;
-    window.tradingSocket.onopen = function(e) {
-        if (originalOnOpen) {
-            originalOnOpen(e);
+        socket.onerror = function (err) {
+            console.error(`WebSocket error for account ${accountId}:`, err);
+        };
+    });
+
+    function formatNumber(num) {
+        return new Intl.NumberFormat('en-US').format(num);
+    }
+
+    function updateStockPrice(accountId, data) {
+        const symbol = data.symbol;
+        const price = parseFloat(data.price);
+        const avgBuyPrice = parseFloat(document.querySelector(`#stock-${accountId}-${symbol} td:nth-child(3)`).textContent.replace(/[₩,]/g, ''));
+        const quantity = parseInt(document.querySelector(`#stock-${accountId}-${symbol} td:nth-child(2)`).textContent.replace(/,/g, ''));
+
+        const evalAmt = price * quantity;
+        const plRatio = avgBuyPrice > 0 ? ((price / avgBuyPrice) - 1) * 100 : 0;
+
+        const priceCell = document.getElementById(`price-${accountId}-${symbol}`);
+        const evalCell = document.getElementById(`eval-${accountId}-${symbol}`);
+        const plCell = document.getElementById(`pl-${accountId}-${symbol}`);
+
+        if (priceCell) priceCell.textContent = `₩ ${formatNumber(price.toFixed(0))}`;
+        if (evalCell) evalCell.textContent = `₩ ${formatNumber(evalAmt.toFixed(0))}`;
+        if (plCell) {
+            plCell.textContent = `${plRatio.toFixed(2)}%`;
+            plCell.className = 'px-4 py-3 whitespace-nowrap text-sm text-right ';
+            if (plRatio > 0) plCell.classList.add('text-green-500');
+            else if (plRatio < 0) plCell.classList.add('text-red-500');
         }
+    }
 
-        const symbolsToSubscribe = new Set();
-        document.querySelectorAll('tr[id^="pos-"]').forEach(row => {
-            const symbol = row.id.split('-').pop();
-            symbolsToSubscribe.add(symbol);
-        });
+    function updateAccountSummary(accountId, data) {
+        const dncaEl = document.getElementById(`balance-dnca-${accountId}`);
+        const pchsEl = document.getElementById(`balance-pchs-${accountId}`);
+        const evluEl = document.getElementById(`balance-evlu-${accountId}`);
+        const pflsEl = document.getElementById(`balance-pfls-${accountId}`);
 
-        console.log("Subscribing to price updates for symbols:", ...symbolsToSubscribe);
-        symbolsToSubscribe.forEach(symbol => {
-            window.tradingSocket.send(JSON.stringify({'type': 'subscribe_stock', 'symbol': symbol}));
-        });
-    };
-
-    // If socket is already open when this script runs, call it immediately
-    if (window.tradingSocket && window.tradingSocket.readyState === WebSocket.OPEN) {
-        window.tradingSocket.onopen();
+        if (dncaEl) dncaEl.textContent = `₩ ${formatNumber(data.dnca_tot_amt)}`;
+        if (pchsEl) pchsEl.textContent = `₩ ${formatNumber(data.tot_pchs_amt)}`;
+        if (evluEl) evluEl.textContent = `₩ ${formatNumber(data.tot_evlu_amt)}`;
+        if (pflsEl) {
+            const pflsRatio = parseFloat(data.evlu_pfls_rt);
+            pflsEl.textContent = `${pflsRatio.toFixed(2)}%`;
+            pflsEl.className = 'text-lg font-semibold ';
+            if (pflsRatio > 0) pflsEl.classList.add('text-green-600');
+            else if (pflsRatio < 0) pflsEl.classList.add('text-red-600');
+        }
     }
 });
 </script>
