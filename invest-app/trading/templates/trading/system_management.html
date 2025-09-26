@@ -1,204 +1,178 @@
-{% extends "trading/_base.html" %}
-{% load humanize %}
+{% extends "trading/base.html" %}
 
-{% block title %}시스템 관리 - Trading Dashboard{% endblock %}
-
-{% block extra_styles %}
-<style>
-.progress-section { display: none; } /* Initially hidden */
-.progress-bar-container { background-color: #e0e0e0; border-radius: 4px; padding: 3px; }
-.progress-bar { background-color: #3498db; height: 20px; border-radius: 2px; width: 0%; transition: width 0.3s ease-in-out; }
-.switch { position: relative; display: inline-block; width: 50px; height: 24px; }
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
-.slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
-input:checked + .slider { background-color: #2196F3; }
-input:checked + .slider:before { transform: translateX(26px); }
-.action-btn { font-size: 0.8em; padding: 5px 10px; margin-left: 5px; }
-.edit-form { display: none; }
-</style>
-{% endblock %}
+{% block title %}시스템 관리{% endblock %}
 
 {% block content %}
-<div class="grid-container">
-    <div class="card">
-        <h2>AI 분석 기반 추천 종목</h2>
-        {% if analyzed_stocks %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>종목명</th>
-                        <th>종목코드</th>
-                        <th>분석일</th>
-                    </tr>
-                </thead>
-                <tbody>
-                {% for stock in analyzed_stocks %}
-                    <tr>
-                        <td>{{ stock.stock_name }}</td>
-                        <td>{{ stock.symbol }}</td>
-                        <td>{{ stock.analysis_date|date:"Y-m-d" }}</td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        {% else %}
-            <p>분석된 종목이 없습니다.</p>
-        {% endif %}
+<div class="space-y-8">
+    <!-- 헤더 -->
+    <div>
+        <h1 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">시스템 관리</h1>
+        <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">백그라운드 작업, AI 분석 결과 및 시스템 설정을 관리합니다.</p>
     </div>
 
-    <div class="card">
-        <h2>수동 작업 실행</h2>
-        <div style="margin-top: 1em;">
+    <!-- AI 분석 추천 종목 -->
+    <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg">
+        <div class="p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">AI 분석 추천 종목</h2>
             <form action="{% url 'trading:run_screening' %}" method="post">
                 {% csrf_token %}
-                <button type="submit">종목 분석 실행</button>
+                <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    수동 분석 실행
+                </button>
             </form>
-            <p style="font-size: 0.8em; color: #666; margin-top: 0.5em;">
-                전체 종목을 대상으로 스크리닝 및 분석을 실행합니다. 시간이 다소 소요될 수 있습니다.
-            </p>
+        </div>
+        <div class="p-5">
+            {% if analyzed_stocks %}
+                <ul class="divide-y divide-gray-200 dark:divide-gray-700">
+                    {% for stock in analyzed_stocks %}
+                    <li class="py-3 flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">{{ stock.stock_name }} ({{ stock.symbol }})</p>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">분석일: {{ stock.analysis_date|date:"Y-m-d" }}</p>
+                        </div>
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                            투자 적합
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="text-sm text-gray-500 dark:text-gray-400">분석된 종목이 없습니다. '수동 분석 실행'을 눌러 분석을 시작하세요.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 백그라운드 작업 관리 -->
+    <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg">
+        <div class="p-5 border-b border-gray-200 dark:border-gray-700">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">백그라운드 작업 관리</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead class="bg-gray-50 dark:bg-gray-700">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">작업명</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">실행 주기 (Crontab)</th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">상태</th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">관리</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {% for task in periodic_tasks %}
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{{ task.name }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono">
+                            <span id="schedule-text-{{ task.id }}">{{ task.crontab.minute }} {{ task.crontab.hour }} {{ task.crontab.day_of_week }} {{ task.crontab.day_of_month }} {{ task.crontab.month_of_year }}</span>
+                            <input type="text" id="schedule-input-{{ task.id }}" class="hidden w-full bg-gray-100 dark:bg-gray-700 rounded p-1 font-mono" value="{{ task.crontab.minute }} {{ task.crontab.hour }} {{ task.crontab.day_of_week }} {{ task.crontab.day_of_month }} {{ task.crontab.month_of_year }}">
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center">
+                            <label for="task-toggle-{{ task.id }}" class="flex items-center cursor-pointer justify-center">
+                                <div class="relative">
+                                    <input type="checkbox" id="task-toggle-{{ task.id }}" class="sr-only task-toggle"
+                                           data-task-id="{{ task.id }}"
+                                           {% if task.enabled %}checked{% endif %}>
+                                    <div class="block bg-gray-600 w-14 h-8 rounded-full"></div>
+                                    <div class="dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition"></div>
+                                </div>
+                            </label>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                            <button class="text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-200 edit-schedule-btn" data-task-id="{{ task.id }}">수정</button>
+                            <button class="hidden text-green-600 hover:text-green-900 save-schedule-btn" data-task-id="{{ task.id }}">저장</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
 
-<div class="card">
-    <h2>예약 작업 관리</h2>
-    {% if periodic_tasks %}
-    <table>
-        <thead>
-            <tr>
-                <th>작업 이름</th>
-                <th>현재 스케줄 (Crontab)</th>
-                <th>마지막 실행</th>
-                <th>활성화</th>
-                <th>관리</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for task in periodic_tasks %}
-            <tr data-task-id="{{ task.id }}">
-                <td><strong>{{ task.name }}</strong><br><small style="color: #666;">{{ task.task }}</small></td>
-                <td class="schedule-display">
-                    {% if task.crontab %}
-                        <span class="schedule-text">{{ task.crontab.minute }} {{ task.crontab.hour }} {{ task.crontab.day_of_month }} {{ task.crontab.month_of_year }} {{ task.crontab.day_of_week }}</span>
-                        <div class="edit-form">
-                            <input type="text" class="schedule-input" value="{{ task.crontab.minute }} {{ task.crontab.hour }} {{ task.crontab.day_of_month }} {{ task.crontab.month_of_year }} {{ task.crontab.day_of_week }}">
-                        </div>
-                    {% elif task.interval %}
-                        <span>Every {{ task.interval.every }} {{ task.interval.period }}</span>
-                    {% else %}
-                        <span>-</span>
-                    {% endif %}
-                </td>
-                <td>{{ task.last_run_at|naturaltime|default:"N/A" }}</td>
-                <td>
-                    <label class="switch">
-                        <input type="checkbox" class="enabled-toggle" {% if task.enabled %}checked{% endif %}>
-                        <span class="slider"></span>
-                    </label>
-                </td>
-                <td class="actions">
-                    {% if task.crontab %}
-                        <button class="action-btn edit-btn">수정</button>
-                        <button class="action-btn save-btn" style="display:none;">저장</button>
-                        <button class="action-btn cancel-btn" style="display:none;">취소</button>
-                    {% else %}
-                        <small>스케줄 변경 불가</small>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p>관리할 수 있는 예약 작업이 없습니다.</p>
-    {% endif %}
-</div>
-{% endblock %}
+<style>
+    input:checked ~ .dot {
+        transform: translateX(100%);
+        background-color: #48bb78; /* green-500 */
+    }
+    input:checked ~ .block {
+        background-color: #a7f3d0; /* green-200 */
+    }
+</style>
 
-{% block extra_scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // --- Periodic Task Management ---
-    document.querySelectorAll('tr[data-task-id]').forEach(row => {
-        const taskId = row.dataset.taskId;
-        const editBtn = row.querySelector('.edit-btn');
-        const saveBtn = row.querySelector('.save-btn');
-        const cancelBtn = row.querySelector('.cancel-btn');
-        const enabledToggle = row.querySelector('.enabled-toggle');
-        const scheduleDisplay = row.querySelector('.schedule-display');
-        const scheduleText = scheduleDisplay.querySelector('.schedule-text');
-        const editForm = scheduleDisplay.querySelector('.edit-form');
-        const scheduleInput = editForm.querySelector('.schedule-input');
+document.addEventListener('DOMContentLoaded', () => {
+    // --- Task Toggle Logic ---
+    document.querySelectorAll('.task-toggle').forEach(toggle => {
+        toggle.addEventListener('change', function() {
+            const taskId = this.dataset.taskId;
+            const scheduleInput = document.getElementById(`schedule-input-${taskId}`);
+            updateTask(taskId, this.checked, scheduleInput.value);
+        });
+    });
 
-        let originalSchedule = scheduleInput.value;
-        let originalEnabled = enabledToggle.checked;
+    // --- Schedule Edit Logic ---
+    document.querySelectorAll('.edit-schedule-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const taskId = this.dataset.taskId;
+            document.getElementById(`schedule-text-${taskId}`).classList.add('hidden');
+            document.getElementById(`schedule-input-${taskId}`).classList.remove('hidden');
+            this.classList.add('hidden');
+            document.querySelector(`.save-schedule-btn[data-task-id="${taskId}"]`).classList.remove('hidden');
+        });
+    });
 
-        if(editBtn) {
-            editBtn.addEventListener('click', () => {
-                scheduleText.style.display = 'none';
-                editForm.style.display = 'block';
-                editBtn.style.display = 'none';
-                saveBtn.style.display = 'inline-block';
-                cancelBtn.style.display = 'inline-block';
-                scheduleInput.focus();
+    document.querySelectorAll('.save-schedule-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const taskId = this.dataset.taskId;
+            const scheduleInput = document.getElementById(`schedule-input-${taskId}`);
+            const scheduleText = document.getElementById(`schedule-text-${taskId}`);
+            const isEnabled = document.getElementById(`task-toggle-${taskId}`).checked;
+
+            updateTask(taskId, isEnabled, scheduleInput.value).then(success => {
+                if (success) {
+                    scheduleText.textContent = scheduleInput.value;
+                    scheduleText.classList.remove('hidden');
+                    scheduleInput.classList.add('hidden');
+                    this.classList.add('hidden');
+                    document.querySelector(`.edit-schedule-btn[data-task-id="${taskId}"]`).classList.remove('hidden');
+                }
             });
-        }
+        });
+    });
 
-        if(cancelBtn) {
-            cancelBtn.addEventListener('click', () => {
-                scheduleText.style.display = 'block';
-                editForm.style.display = 'none';
-                editBtn.style.display = 'inline-block';
-                saveBtn.style.display = 'none';
-                cancelBtn.style.display = 'none';
-                scheduleInput.value = originalSchedule;
-            });
-        }
+    // --- Common Update Function ---
+    async function updateTask(taskId, enabled, schedule) {
+        const url = "{% url 'trading:update_task_schedule' %}";
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]') ? document.querySelector('[name=csrfmiddlewaretoken]').value : '{{ csrf_token }}';
 
-        const updateTask = () => {
-            const newSchedule = scheduleInput.value;
-            const isEnabled = enabledToggle.checked;
-
-            if (newSchedule.split(' ').length !== 5) {
-                alert('Crontab 스케줄은 5개의 파트여야 합니다 (예: "0 9 * * *").');
-                return;
-            }
-
-            fetch("{% url 'trading:update_task_schedule' %}", {
+        try {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token }}'
+                    'X-CSRFToken': csrfToken
                 },
                 body: JSON.stringify({
                     task_id: taskId,
-                    schedule: newSchedule,
-                    enabled: isEnabled
+                    enabled: enabled,
+                    schedule: schedule
                 })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    scheduleText.textContent = newSchedule;
-                    originalSchedule = newSchedule;
-                    originalEnabled = isEnabled;
-                    if(cancelBtn) cancelBtn.click();
-                } else {
-                    alert('오류: ' + data.message);
-                    enabledToggle.checked = originalEnabled;
-                }
-            })
-            .catch(error => {
-                console.error('Error updating task:', error);
-                alert('작업 업데이트 중 오류가 발생했습니다.');
-                enabledToggle.checked = originalEnabled;
             });
-        };
-
-        if(saveBtn) saveBtn.addEventListener('click', updateTask);
-        if(enabledToggle) enabledToggle.addEventListener('change', updateTask);
-    });
+            const data = await response.json();
+            if (data.status === 'success') {
+                console.log('Task updated successfully');
+                return true;
+            } else {
+                console.error('Failed to update task:', data.message);
+                alert('작업 상태 변경에 실패했습니다: ' + data.message);
+                return false;
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('서버와 통신 중 오류가 발생했습니다.');
+            return false;
+        }
+    }
 });
 </script>
+
 {% endblock %}

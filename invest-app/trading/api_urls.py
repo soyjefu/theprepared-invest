@@ -12,4 +12,7 @@ urlpatterns = [
 
     # Endpoint to get the latest AI-driven market trend analysis and recommended capital allocations.
     path('ai/recommendations/', api_views.AIRecommendationAPIView.as_view(), name='ai-recommendations'),
+
+    # Endpoint to sell a single portfolio position.
+    path('portfolio/<int:pk>/sell/', api_views.SellPositionAPIView.as_view(), name='portfolio-sell'),
 ]

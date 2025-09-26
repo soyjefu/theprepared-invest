@@ -56,6 +56,10 @@ class TradeLog(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
     log_message = models.TextField(blank=True, help_text="Detailed message or error log for the trade.")
 
+    @property
+    def total_amount(self):
+        return self.quantity * self.price
+
     def __str__(self):
         return f"[{self.timestamp.strftime('%Y-%m-%d %H:%M')}] {self.account.account_name} - {self.symbol} {self.get_trade_type_display()} ({self.status})"
 
@@ -109,6 +113,10 @@ class Portfolio(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    @property
+    def total_investment(self):
+        return self.quantity * self.average_buy_price
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
