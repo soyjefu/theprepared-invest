@@ -15,22 +15,23 @@ def run_stock_screening_task():
     Celery task to run the universe screening process.
     This should be run weekly as per the requirements.
     """
-    logger.info("Celery Task: Starting weekly universe screening.")
+    logger.info("Celery 작업: 주간 유니버스 스크리닝을 시작합니다.")
     try:
-        # This task should ideally be run for a specific system user or
-        # for each active user account depending on the multi-tenancy design.
-        # Here, we assume a single-user context or a system-wide screening.
-        user = User.objects.first()
-        if not user:
-            logger.error("No users found in the system. Cannot run screener.")
+        # 시스템에서 활성화된 첫 번째 트레이딩 계정을 찾아 스크리닝을 실행합니다.
+        # 스크리닝 프로세스는 활성 계정을 가진 어떤 사용자에 의해서도 수행될 수 있다고 가정합니다.
+        active_account = TradingAccount.objects.filter(is_active=True).first()
+        if not active_account:
+            logger.error("활성화된 트레이딩 계좌가 없습니다. 스크리너를 실행할 수 없습니다.")
             return
 
+        # 해당 계정의 사용자를 가져옵니다.
+        user = active_account.user
         screener = UniverseScreener(user=user)
         screener.screen_all_stocks()
-        logger.info("Celery Task: Weekly universe screening finished successfully.")
+        logger.info("Celery 작업: 주간 유니버스 스크리닝이 성공적으로 완료되었습니다.")
 
     except Exception as e:
-        logger.error(f"An error occurred during the weekly stock screening task: {e}", exc_info=True)
+        logger.error(f"주간 주식 스크리닝 작업 중 오류 발생: {e}", exc_info=True)
 
 
 @shared_task
