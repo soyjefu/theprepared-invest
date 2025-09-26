@@ -12,6 +12,7 @@ services:
     container_name: invest_db
     restart: unless-stopped
     environment:
+      TZ=Asia/Seoul:
       POSTGRES_DB: ${POSTGRES_DB_I}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -26,6 +27,8 @@ services:
     image: "redis:alpine"
     container_name: redis_invest
     restart: unless-stopped
+    environment:
+      TZ=Asia/Seoul:
     networks:
       - internal
 
@@ -43,6 +46,7 @@ services:
     env_file:
       - ./.env # 수정: env_file 경로 단일화
     environment:
+      TZ=Asia/Seoul:
       MPLCONFIGDIR: /tmp/matplotlib
       POSTGRES_HOST: invest_db
       POSTGRES_DB: ${POSTGRES_DB_I}
@@ -67,6 +71,7 @@ services:
     env_file:
       - ./.env
     environment:
+      TZ=Asia/Seoul:
       POSTGRES_HOST: invest_db
       POSTGRES_DB: ${POSTGRES_DB_I}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -90,6 +95,7 @@ services:
     env_file:
       - ./.env
     environment:
+      TZ=Asia/Seoul:
       POSTGRES_HOST: invest_db
       POSTGRES_DB: ${POSTGRES_DB_I}
       POSTGRES_USER: ${POSTGRES_USER}
