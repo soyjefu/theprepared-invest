@@ -30,3 +30,6 @@ yarn-error.log
 
 # Custom
 jules-scratch/
+
+invest-app/staticfiles/
+.env
