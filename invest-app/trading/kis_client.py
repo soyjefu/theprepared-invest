@@ -248,9 +248,11 @@ class KISApiClient:
         """
         path = "/uapi/domestic-stock/v1/trading/inquire-balance"
         tr_id = "VTTC8434R" if self.account_type == 'SIM' else "TTTC8434R"
+        # 모의투자에서는 "01" (대출일자별) 조회가 불안정하여 "02" (종목별)로 변경
+        inqr_dvsn = "02" if self.account_type == 'SIM' else "01"
         clean_account_no = self.account_no.replace('-', '')
         cano, acnt_prdt_cd = clean_account_no[:8], clean_account_no[8:]
-        params = {"CANO": cano, "ACNT_PRDT_CD": acnt_prdt_cd, "AFHR_FLPR_YN": "N", "OFL_YN": "", "INQR_DVSN": "01", "UNPR_DVSN": "01", "FUND_STTL_ICLD_YN": "N", "FNCG_AMT_AUTO_RDPT_YN": "N", "PRCS_DVSN": "00", "CTX_AREA_FK100": "", "CTX_AREA_NK100": ""}
+        params = {"CANO": cano, "ACNT_PRDT_CD": acnt_prdt_cd, "AFHR_FLPR_YN": "N", "OFL_YN": "", "INQR_DVSN": inqr_dvsn, "UNPR_DVSN": "01", "FUND_STTL_ICLD_YN": "N", "FNCG_AMT_AUTO_RDPT_YN": "N", "PRCS_DVSN": "00", "CTX_AREA_FK100": "", "CTX_AREA_NK100": ""}
         return self._send_request(method='GET', path=path, params=params, tr_id=tr_id)
 
     def get_current_price(self, symbol):
