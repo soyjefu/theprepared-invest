@@ -4,7 +4,7 @@ from django.contrib import messages
 from .models import StrategySettings, Portfolio, TradeLog, AnalyzedStock, TradingAccount
 from django_celery_beat.models import PeriodicTask, CrontabSchedule
 from .kis_client import KISApiClient
-from .tasks import analyze_stocks_task, run_daily_morning_routine
+from .tasks import run_stock_screening_task
 from decimal import Decimal
 import logging
 import json
@@ -219,9 +219,9 @@ def system_management(request):
 @require_POST
 def trigger_stock_screening(request):
     """
-    Triggers the Celery task to run the initial stock screening.
+    Triggers the Celery task to run the stock screening and analysis.
 
-    This is a POST-only view that initiates the `run_daily_morning_routine`
+    This is a POST-only view that initiates the `run_stock_screening_task`
     Celery task. It adds a success message and redirects the user back to the
     system management page.
 
@@ -231,61 +231,9 @@ def trigger_stock_screening(request):
     Returns:
         An HttpResponseRedirect to the system management page.
     """
-    run_daily_morning_routine.delay()
-    messages.success(request, "Stage 1: Stock screening has started.")
+    run_stock_screening_task.delay()
+    messages.success(request, "종목 분석을 시작했습니다. 잠시 후 결과가 업데이트됩니다.")
     return redirect('trading:system_management')
-
-def get_screening_status(request):
-    """
-    API endpoint to get the status of the running screening task from the cache.
-
-    Args:
-        request: The HttpRequest object.
-
-    Returns:
-        A JsonResponse containing the status and progress of the task,
-        or a default 'idle' status if no task is running.
-    """
-    progress_data = cache.get('screening_progress')
-    if progress_data:
-        return JsonResponse(progress_data)
-    return JsonResponse({'status': 'idle', 'progress': 0})
-
-@login_required
-@require_POST
-def trigger_stock_analysis(request):
-    """
-    Triggers the Celery task to run the AI stock analysis.
-
-    This is a POST-only view that initiates the `analyze_stocks_task`
-    Celery task. It adds a success message and redirects the user back to the
-    system management page.
-
-    Args:
-        request: The HttpRequest object.
-
-    Returns:
-        An HttpResponseRedirect to the system management page.
-    """
-    analyze_stocks_task.delay()
-    messages.success(request, "Stage 2: AI analysis has started. Results will be updated shortly.")
-    return redirect('trading:system_management')
-
-def get_analysis_status(request):
-    """
-    API endpoint to get the status of the running analysis task from the cache.
-
-    Args:
-        request: The HttpRequest object.
-
-    Returns:
-        A JsonResponse containing the status and progress of the task,
-        or a default 'idle' status if no task is running.
-    """
-    progress_data = cache.get('analysis_progress')
-    if progress_data:
-        return JsonResponse(progress_data)
-    return JsonResponse({'status': 'idle', 'progress': 0})
 
 @login_required
 @require_POST
